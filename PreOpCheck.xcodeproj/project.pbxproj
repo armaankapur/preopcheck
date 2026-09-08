@@ -6,20 +6,56 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		254663942FA0430E00C7D8B3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2546635C2F9F7ECC00C7D8B3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 254663632F9F7ECC00C7D8B3;
+			remoteInfo = PreOpCheck;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		254663642F9F7ECC00C7D8B3 /* PreOpCheck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PreOpCheck.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		254663902FA0430D00C7D8B3 /* PreOpCheckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PreOpCheckTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		254663872F9F891F00C7D8B3 /* Exceptions for "PreOpCheck" folder in "PreOpCheck" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 254663632F9F7ECC00C7D8B3 /* PreOpCheck */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		254663662F9F7ECC00C7D8B3 /* PreOpCheck */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				254663872F9F891F00C7D8B3 /* Exceptions for "PreOpCheck" folder in "PreOpCheck" target */,
+			);
 			path = PreOpCheck;
+			sourceTree = "<group>";
+		};
+		254663912FA0430E00C7D8B3 /* PreOpCheckTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PreOpCheckTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		254663612F9F7ECC00C7D8B3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2546638D2FA0430D00C7D8B3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				254663662F9F7ECC00C7D8B3 /* PreOpCheck */,
+				254663912FA0430E00C7D8B3 /* PreOpCheckTests */,
 				254663652F9F7ECC00C7D8B3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				254663642F9F7ECC00C7D8B3 /* PreOpCheck.app */,
+				254663902FA0430D00C7D8B3 /* PreOpCheckTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +108,29 @@
 			productReference = 254663642F9F7ECC00C7D8B3 /* PreOpCheck.app */;
 			productType = "com.apple.product-type.application";
 		};
+		2546638F2FA0430D00C7D8B3 /* PreOpCheckTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 254663962FA0430E00C7D8B3 /* Build configuration list for PBXNativeTarget "PreOpCheckTests" */;
+			buildPhases = (
+				2546638C2FA0430D00C7D8B3 /* Sources */,
+				2546638D2FA0430D00C7D8B3 /* Frameworks */,
+				2546638E2FA0430D00C7D8B3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				254663952FA0430E00C7D8B3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				254663912FA0430E00C7D8B3 /* PreOpCheckTests */,
+			);
+			name = PreOpCheckTests;
+			packageProductDependencies = (
+			);
+			productName = PreOpCheckTests;
+			productReference = 254663902FA0430D00C7D8B3 /* PreOpCheckTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +143,10 @@
 				TargetAttributes = {
 					254663632F9F7ECC00C7D8B3 = {
 						CreatedOnToolsVersion = 26.4.1;
+					};
+					2546638F2FA0430D00C7D8B3 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 254663632F9F7ECC00C7D8B3;
 					};
 				};
 			};
@@ -100,12 +165,20 @@
 			projectRoot = "";
 			targets = (
 				254663632F9F7ECC00C7D8B3 /* PreOpCheck */,
+				2546638F2FA0430D00C7D8B3 /* PreOpCheckTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		254663622F9F7ECC00C7D8B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2546638E2FA0430D00C7D8B3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +195,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2546638C2FA0430D00C7D8B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		254663952FA0430E00C7D8B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 254663632F9F7ECC00C7D8B3 /* PreOpCheck */;
+			targetProxy = 254663942FA0430E00C7D8B3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2546636D2F9F7ECF00C7D8B3 /* Debug */ = {
@@ -251,8 +339,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9ZF2WJCCB3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PreOpCheck/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "PreOpCheck uses the camera to scan medication lists for pre-operative safety checks.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -282,8 +373,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9ZF2WJCCB3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PreOpCheck/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "PreOpCheck uses the camera to scan medication lists for pre-operative safety checks.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -306,6 +400,48 @@
 			};
 			name = Release;
 		};
+		254663972FA0430E00C7D8B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9ZF2WJCCB3;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.timothychen.PreOpCheckTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PreOpCheck.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PreOpCheck";
+			};
+			name = Debug;
+		};
+		254663982FA0430E00C7D8B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9ZF2WJCCB3;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.timothychen.PreOpCheckTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PreOpCheck.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PreOpCheck";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -323,6 +459,15 @@
 			buildConfigurations = (
 				254663702F9F7ECF00C7D8B3 /* Debug */,
 				254663712F9F7ECF00C7D8B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		254663962FA0430E00C7D8B3 /* Build configuration list for PBXNativeTarget "PreOpCheckTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				254663972FA0430E00C7D8B3 /* Debug */,
+				254663982FA0430E00C7D8B3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

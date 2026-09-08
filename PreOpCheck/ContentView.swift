@@ -5,20 +5,23 @@
 //  Created by Timo on 4/27/26.
 //
 
+// ContentView.swift
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject var caseStore: CaseStore
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        NavigationStack {
+            HomeView()
+                .environmentObject(caseStore)
         }
-        .padding()
+        .tint(Color.stanford)
+        .preferredColorScheme(.light)
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(CaseStore())
 }
