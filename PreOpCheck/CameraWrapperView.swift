@@ -80,8 +80,13 @@ struct CameraWrapperView: View {
                 .background(Color.black)
 
         case .authorized:
+            // Secure container: the live preview and detected-count chrome
+            // are blacked out in screenshots and recordings.
             ScannerView(scannedMeds: $scannedMatches, isScanning: $isScanning)
                 .ignoresSafeArea()
+                .screenCaptureProtected()
+                .ignoresSafeArea()
+                .screenCaptureNotice()
 
         case .denied:
             permissionMessage(
@@ -133,15 +138,15 @@ struct CameraWrapperView: View {
                                    showSettingsButton: Bool) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "camera.fill")
-                .font(.system(size: 40))
+                .font(.app(40))
                 .foregroundColor(.inkTertiary)
 
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.app(18, .semibold))
                 .foregroundColor(.inkPrimary)
 
             Text(body)
-                .font(.system(size: 14))
+                .font(.app(14))
                 .foregroundColor(.inkSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -153,11 +158,11 @@ struct CameraWrapperView: View {
                     }
                 } label: {
                     Text("Open Settings")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.app(16, .semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 28)
                         .padding(.vertical, 13)
-                        .background(Color.stanford)
+                        .background(Color.actionGreen)
                         .cornerRadius(12)
                 }
                 .padding(.top, 6)

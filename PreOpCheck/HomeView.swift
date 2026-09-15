@@ -30,7 +30,7 @@ struct HomeView: View {
                 scanButton
                 manualButton
                 recentCases
-                offlineBadge
+                offlineAnalysis
             }
         }
         .background(Color.stanfordLight)
@@ -56,14 +56,15 @@ struct HomeView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Stanford Preoperative Medication")
-                .font(.system(size: 28, weight: .bold))
+            Text("Pre-operative medication checker")
+                .font(.app(28, .bold))
                 .foregroundColor(.inkPrimary)
+                .fixedSize(horizontal: false, vertical: true)
             Text("Stanford Children's & Stanford Hospital")
-                .font(.system(size: 15, weight: .medium))
+                .font(.app(15, .medium))
                 .foregroundColor(Color.stanford)
             Text("Pre-operative medication safety,\nat the point of care.")
-                .font(.system(size: 16))
+                .font(.app(16))
                 .foregroundColor(.inkSecondary)
                 .lineSpacing(3)
                 .padding(.top, 4)
@@ -81,14 +82,14 @@ struct HomeView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.app(18, .semibold))
                 Text("Scan Medication List")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.app(17, .semibold))
             }
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 17)
-            .background(Color.stanford)
+            .background(Color.actionGreen)
             .cornerRadius(14)
         }
         .padding(.horizontal, 20)
@@ -101,18 +102,18 @@ struct HomeView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 16))
+                    .font(.app(16))
                 Text("Enter Manually")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.app(17, .medium))
             }
-            .foregroundColor(Color.stanford)
+            .foregroundColor(Color.actionGreen)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 17)
             .background(Color.white)
             .cornerRadius(14)
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.stanford.opacity(0.4), lineWidth: 1)
+                    .stroke(Color.actionGreen, lineWidth: 1.5)
             )
         }
         .padding(.horizontal, 20)
@@ -124,14 +125,14 @@ struct HomeView: View {
     private var recentCases: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("RECENT CASES")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.app(13, .semibold))
                 .foregroundColor(.inkSecondary)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
 
             if caseStore.cases.isEmpty {
                 Text("No recent cases. Start a new check above.")
-                    .font(.system(size: 14))
+                    .font(.app(14))
                     .foregroundColor(.inkSecondary)
                     .padding(.horizontal, 20)
             } else {
@@ -155,11 +156,11 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("Case \(String(c.id.uuidString.prefix(4)))")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.app(15, .semibold))
                         .foregroundColor(.inkPrimary)
                     if c.isStale {
                         Text("OLD GUIDELINE")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.app(9, .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -183,11 +184,11 @@ struct HomeView: View {
                     Text(HomeView.timeFormatter.string(from: c.date))
                         .foregroundColor(.inkSecondary)
                 }
-                .font(.system(size: 13))
+                .font(.app(13))
             }
             Spacer()
             Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
+                .font(.app(14, .medium))
                 .foregroundColor(Color(.systemGray3))
         }
         .padding(.horizontal, 16)
@@ -202,28 +203,52 @@ struct HomeView: View {
         navigateToResults = true
     }
 
-    // MARK: Badge
+    // MARK: Offline analysis
 
-    private var offlineBadge: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "cross.case.fill")
-                .font(.system(size: 20))
-                .foregroundColor(.white)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Offline-First Analysis")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                Text("Camera scanning works without internet using on-device Vision framework.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineSpacing(2)
+    private struct Assurance: Identifiable {
+        let icon: String
+        let text: String
+        var id: String { text }
+    }
+
+    private let assurances: [Assurance] = [
+        Assurance(icon: "checkmark.shield.fill", text: "HIPAA compliant"),
+        Assurance(icon: "photo.badge.exclamationmark", text: "No photos saved"),
+        Assurance(icon: "wifi.slash", text: "No internet needed")
+    ]
+
+    private var offlineAnalysis: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("OFFLINE ANALYSIS")
+                .font(.app(13, .semibold))
+                .foregroundColor(.inkSecondary)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+
+            VStack(spacing: 0) {
+                ForEach(assurances) { item in
+                    HStack(spacing: 14) {
+                        Image(systemName: item.icon)
+                            .font(.app(18, .semibold))
+                            .foregroundColor(.stanford)
+                            .frame(width: 28, alignment: .center)
+                        Text(item.text)
+                            .font(.app(16, .medium))
+                            .foregroundColor(.inkPrimary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    if item.id != assurances.last?.id {
+                        Divider().padding(.leading, 58)
+                    }
+                }
             }
+            .background(Color.white)
+            .cornerRadius(14)
+            .padding(.horizontal, 20)
         }
-        .padding(16)
-        .background(Color.stanford)
-        .cornerRadius(12)
-        .padding(.horizontal, 20)
-        .padding(.top, 24)
+        .padding(.top, 28)
         .padding(.bottom, 32)
     }
 }

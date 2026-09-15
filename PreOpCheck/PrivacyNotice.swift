@@ -73,14 +73,14 @@ struct PrivacyNotice: View {
                 VStack(alignment: .leading, spacing: 0) {
 
                     Image(systemName: "lock.shield")
-                        .font(.system(size: 42, weight: .regular))
+                        .font(.app(42, .regular))
                         .foregroundColor(.stanford)
                         .padding(.top, 44)
                         .padding(.bottom, 18)
                         .frame(maxWidth: .infinity, alignment: .center)
 
                     Text("How this app handles patient information")
-                        .font(.system(size: 25, weight: .bold))
+                        .font(.app(25, .bold))
                         .foregroundColor(.inkPrimary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -89,17 +89,17 @@ struct PrivacyNotice: View {
                     ForEach(points, id: \.title) { point in
                         HStack(alignment: .top, spacing: 14) {
                             Image(systemName: point.icon)
-                                .font(.system(size: 19))
+                                .font(.app(19))
                                 .foregroundColor(.stanford)
                                 .frame(width: 28, alignment: .center)
                                 .padding(.top, 2)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(point.title)
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.app(16, .semibold))
                                     .foregroundColor(.inkPrimary)
                                 Text(point.body)
-                                    .font(.system(size: 14))
+                                    .font(.app(14))
                                     .foregroundColor(.inkSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -109,7 +109,7 @@ struct PrivacyNotice: View {
 
                     Text("This screen can be shown to a patient who asks what the app does. "
                        + "You can reopen it any time from the info button on the scan screen.")
-                        .font(.system(size: 13))
+                        .font(.app(13))
                         .foregroundColor(.inkTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
@@ -124,16 +124,16 @@ struct PrivacyNotice: View {
                     onDismiss()
                 } label: {
                     Text(isFirstRun ? "Got it" : "Done")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.app(17, .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Color.stanford)
+                        .background(Color.actionGreen)
                         .cornerRadius(14)
                 }
 
                 Text("\(GuidelineMeta.title), revised \(GuidelineMeta.revision)")
-                    .font(.system(size: 11))
+                    .font(.app(11))
                     .foregroundColor(.inkTertiary)
             }
             .padding(.horizontal, 28)

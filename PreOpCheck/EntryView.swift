@@ -20,7 +20,7 @@ struct EntryView: View {
                 VStack(alignment: .leading, spacing: 20) {
 
                     Text("Type or paste each medication name below. We'll check each one against the PARC pre-operative guideline.")
-                        .font(.system(size: 14))
+                        .font(.app(14))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
@@ -39,11 +39,11 @@ struct EntryView: View {
 
                         Button(action: addMed) {
                             Text("Add")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.app(15, .semibold))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
-                                .background(Color.stanford)
+                                .background(Color.actionGreen)
                                 .cornerRadius(10)
                         }
                     }
@@ -52,7 +52,7 @@ struct EntryView: View {
                     // Chips
                     if meds.isEmpty {
                         Text("No medications added yet")
-                            .font(.system(size: 14))
+                            .font(.app(14))
                             .foregroundColor(Color(.systemGray3))
                             .padding(.horizontal, 20)
                     } else {
@@ -60,13 +60,13 @@ struct EntryView: View {
                             ForEach(Array(meds.enumerated()), id: \.offset) { i, med in
                                 HStack(spacing: 6) {
                                     Text(med)
-                                        .font(.system(size: 14))
+                                        .font(.app(14))
 
                                     // Live check against the guideline so a typo
                                     // is visible before Analyze is tapped.
                                     if !isRecognized(med) {
                                         Image(systemName: "questionmark.circle")
-                                            .font(.system(size: 12))
+                                            .font(.app(12))
                                             .foregroundColor(.orange)
                                     }
 
@@ -74,7 +74,7 @@ struct EntryView: View {
                                         meds.remove(at: i)
                                     } label: {
                                         Image(systemName: "xmark")
-                                            .font(.system(size: 11, weight: .semibold))
+                                            .font(.app(11, .semibold))
                                             .foregroundColor(.secondary)
                                     }
                                 }
@@ -92,11 +92,11 @@ struct EntryView: View {
                     // Analyze button
                     Button(action: analyze) {
                         Text("Analyze Medications")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.app(17, .semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(meds.isEmpty ? Color.gray : Color(hex: "#34C759"))
+                            .background(meds.isEmpty ? Color.gray : Color.actionGreen)
                             .cornerRadius(14)
                     }
                     .disabled(meds.isEmpty)

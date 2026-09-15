@@ -30,7 +30,6 @@ enum Severity: String, Codable, Hashable {
     case takeAsDirected
     case hold
     case consult
-    case conditional
 }
 
 // MARK: - Action
@@ -48,8 +47,9 @@ enum Action: Codable, Hashable {
         switch self {
         case .takeAsDirected:                      return .takeAsDirected
         case .holdDayOfSurgery, .holdHours, .holdDays: return .hold
-        case .consult:                             return .consult
-        case .variable:                            return .conditional
+        // A case-by-case instruction is a consult: the clinician reads the
+        // considerations and decides, the app never picks a branch.
+        case .consult, .variable:                  return .consult
         }
     }
 
@@ -79,11 +79,12 @@ enum Action: Codable, Hashable {
 
 // MARK: - Conditional
 
-/// A branch that depends on indication, dose, route, or dosing frequency.
-/// The whole point of this type is that the app must ASK rather than guess.
+/// One possible branch of guidance that depends on indication, dose, route,
+/// or dosing frequency. The app never asks the clinician to pick one; every
+/// branch is listed read-only under "Considerations" on a Consult card.
 struct Conditional: Codable, Hashable, Identifiable {
     let id: String
-    let question: String     // shown to the clinician
+    let question: String     // what the branches depend on, e.g. "How often is this injected?"
     let whenLabel: String    // the branch
     let action: Action
     var detail: String?
@@ -106,10 +107,7 @@ struct Guidance: Codable, Hashable {
     var pediatricCardiac: String?
     var concern: String?
 
-    /// True when the app cannot resolve an answer without more input.
-    var requiresInput: Bool { !conditionals.isEmpty }
-
-    var severity: Severity { requiresInput ? .conditional : action.severity }
+    var severity: Severity { action.severity }
 }
 
 // MARK: - Drug

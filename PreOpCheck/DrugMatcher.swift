@@ -241,9 +241,8 @@ final class DrugMatcher {
     private func severityRank(_ s: Severity) -> Int {
         switch s {
         case .hold:            return 0
-        case .conditional:     return 1
-        case .consult:         return 2
-        case .takeAsDirected:  return 3
+        case .consult:         return 1
+        case .takeAsDirected:  return 2
         }
     }
 
@@ -280,19 +279,16 @@ final class DrugMatcher {
 
 // MARK: - Resolution
 
-/// A match plus whatever the clinician answered for its conditionals.
+/// A match with its guideline instruction. There is no interactive state:
+/// drugs whose guidance branches are consults, and the branches are shown to
+/// the clinician as read-only considerations.
 struct ResolvedMedication: Identifiable {
     let match: DrugMatch
-    var chosenBranch: Conditional?
 
     var id: String { match.id }
 
-    /// The final instruction. Nil means the app is still waiting on an answer.
-    var action: Action? {
-        let g = match.drug.guidance
-        if g.conditionals.isEmpty { return g.action }
-        return chosenBranch?.action
-    }
+    var action: Action { match.drug.guidance.action }
 
-    var isUnresolved: Bool { action == nil }
+    /// Branches the clinician should weigh. Empty for most drugs.
+    var considerations: [Conditional] { match.drug.guidance.conditionals }
 }

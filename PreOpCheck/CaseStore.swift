@@ -6,9 +6,9 @@
 //
 //  Note on what is persisted: NOT the DrugMatch. Bounding boxes and match
 //  confidence are scan-time artifacts and have no meaning once the case is
-//  saved. What matters clinically is which drug, what the clinician answered,
-//  and what instruction that produced. Storing only the drug id also means a
-//  future guideline revision won't leave stale drug text in old cases.
+//  saved. What matters clinically is which drug and what instruction the
+//  guideline gave for it. Storing only the drug id also means a future
+//  guideline revision won't leave stale drug text in old cases.
 //
 
 import Foundation
@@ -20,8 +20,7 @@ struct SavedMedication: Codable, Identifiable, Hashable {
     let drugID: String
     let matchedText: String        // what was actually read off the page
     let needsVerification: Bool    // was this a fuzzy OCR match
-    let chosenBranchLabel: String? // which conditional the clinician picked
-    let action: Action?            // resolved instruction, nil if unanswered
+    let action: Action             // the guideline instruction at save time
 
     var id: String { drugID }
 
@@ -38,13 +37,10 @@ struct SavedCase: Codable, Identifiable, Hashable {
     let guidelineRevision: String
 
     var holdCount: Int {
-        medications.filter { $0.action?.severity == .hold }.count
+        medications.filter { $0.action.severity == .hold }.count
     }
     var consultCount: Int {
-        medications.filter { $0.action?.severity == .consult }.count
-    }
-    var unresolvedCount: Int {
-        medications.filter { $0.action == nil }.count
+        medications.filter { $0.action.severity == .consult }.count
     }
 
     /// True when the case was saved against an older revision of the guideline.
@@ -64,14 +60,14 @@ final class CaseStore: ObservableObject {
 
     // MARK: Save
 
-    /// Called from ResultsView. Matches `caseStore.save(medications)`.
+    /// Called from ResultsView. Saving never blocks: every medication always
+    /// has an instruction, so there is nothing to wait on.
     func save(_ medications: [ResolvedMedication]) {
         let saved = medications.map { med in
             SavedMedication(
                 drugID: med.match.drug.id,
                 matchedText: med.match.matchedText,
                 needsVerification: med.match.needsVerification,
-                chosenBranchLabel: med.chosenBranch?.whenLabel,
                 action: med.action
             )
         }
@@ -117,9 +113,8 @@ final class CaseStore: ObservableObject {
         do {
             cases = try JSONDecoder().decode([SavedCase].self, from: data)
         } catch {
-            // v1 cases used the old MedicationResult shape and cannot be
-            // migrated, since the old three-state model has no equivalent
-            // for a conditional. Start clean rather than guess.
+            // Older cases used a different shape and cannot be migrated.
+            // Start clean rather than guess.
             print("CaseStore: could not decode saved cases, starting empty. \(error)")
             cases = []
         }

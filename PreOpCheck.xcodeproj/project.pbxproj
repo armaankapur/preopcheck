@@ -343,6 +343,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PreOpCheck/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PreOpCheck;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PreOpCheck uses the camera to scan medication lists for pre-operative safety checks.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -377,6 +378,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PreOpCheck/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PreOpCheck;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PreOpCheck uses the camera to scan medication lists for pre-operative safety checks.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

@@ -92,12 +92,7 @@ enum MedicationResolver {
                 boxes: []
             )
 
-            // Re-attach the branch the clinician chose, matched by label.
-            let branch = drug.guidance.conditionals.first {
-                $0.whenLabel == item.chosenBranchLabel
-            }
-
-            medications.append(ResolvedMedication(match: match, chosenBranch: branch))
+            medications.append(ResolvedMedication(match: match))
         }
 
         return Outcome(medications: medications.sorted { rank($0) < rank($1) },
@@ -108,27 +103,24 @@ enum MedicationResolver {
 
     private static func wrap(_ matches: [DrugMatch]) -> [ResolvedMedication] {
         matches
-            .map { ResolvedMedication(match: $0, chosenBranch: nil) }
+            .map { ResolvedMedication(match: $0) }
             .sorted { rank($0) < rank($1) }
     }
 
-    /// Unanswered conditionals sort to the top, then holds, then consults.
+    /// Holds first, then consults, then take as directed.
     private static func rank(_ m: ResolvedMedication) -> Int {
-        if m.isUnresolved { return 0 }
-        switch m.action?.severity {
-        case .hold:           return 1
-        case .consult:        return 2
-        case .conditional:    return 3
-        case .takeAsDirected: return 4
-        case .none:           return 5
+        switch m.action.severity {
+        case .hold:           return 0
+        case .consult:        return 1
+        case .takeAsDirected: return 2
         }
     }
 
     // MARK: Demo
 
     /// Sample data for HomeView's demo path. Deliberately mixes a hold, a
-    /// consult, a conditional and a take-as-directed so every results section
-    /// renders.
+    /// consult (with considerations) and a take-as-directed so every results
+    /// section renders.
     static func demo() -> Outcome {
         resolve(lines: [
             "lisinopril 10 mg daily",

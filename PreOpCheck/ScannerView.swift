@@ -17,6 +17,11 @@
 //     space left between the top indicator and the bottom controls instead of
 //     being a fixed fraction of screen height.
 //
+//  3. TWO-STEP CAPTURE. Tapping the green shutter freezes the frame and keeps
+//     the stable matches. The shutter then becomes a green "Proceed" square;
+//     tapping it hands the matches to the delegate, which runs analysis and
+//     shows results. "Retake" restarts the session.
+//
 
 import SwiftUI
 import AVFoundation
@@ -121,6 +126,13 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     private let countLabel = UILabel()
     private let shutterRing = UIView()
     private let shutter = UIButton(type: .custom)
+    private let retakeButton = UIButton(type: .system)
+
+    /// Scanning shows a live count; captured freezes the frame and waits for
+    /// the clinician to tap Proceed.
+    private enum Phase { case scanning, captured }
+    private var phase: Phase = .scanning
+    private var capturedMatches: [DrugMatch] = []
 
     private var lastReportedCount = -1
 
@@ -144,6 +156,10 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         static let ringDiameter: CGFloat = 82
         static let shutterBottomGap: CGFloat = 34
         static let guideWidthFraction: CGFloat = 0.88
+        static let proceedWidth: CGFloat = 176
+        static let proceedHeight: CGFloat = 58
+        static let proceedCorner: CGFloat = 14
+        static let retakeWidth: CGFloat = 84
     }
 
     // MARK: Lifecycle
@@ -338,7 +354,15 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
     // MARK: Capture
 
-    @objc private func captureNow() {
+    @objc private func shutterTapped() {
+        switch phase {
+        case .scanning: capture()
+        case .captured: proceed()
+        }
+    }
+
+    /// Step one: freeze the frame and keep what was read.
+    private func capture() {
         let matches = state.stableMatches()
 
         guard !matches.isEmpty else {
@@ -351,8 +375,53 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
             return
         }
 
+        capturedMatches = matches
         cameraQueue.async { [weak self] in self?.captureSession.stopRunning() }
-        delegate?.didDetectMedications(matches)
+        setPhase(.captured, animated: true)
+    }
+
+    /// Step two: run analysis. The delegate resolves and pushes results.
+    private func proceed() {
+        guard !capturedMatches.isEmpty else { return }
+        delegate?.didDetectMedications(capturedMatches)
+    }
+
+    @objc private func retake() {
+        capturedMatches = []
+        state.reset()
+        lastReportedCount = -1
+        updateCount(0)
+        cameraQueue.async { [weak self] in self?.captureSession.startRunning() }
+        setPhase(.scanning, animated: true)
+    }
+
+    private func setPhase(_ new: Phase, animated: Bool) {
+        phase = new
+        let captured = new == .captured
+
+        let n = capturedMatches.count
+        countLabel.text = captured
+            ? (n == 1 ? "1 medication captured" : "\(n) medications captured")
+            : "0 medications detected"
+        instructionLabel.text = captured
+            ? "Tap Proceed to analyze"
+            : "Fill the box with the medication list"
+        shutter.setTitle(captured ? "Proceed" : nil, for: .normal)
+        shutter.accessibilityLabel = captured ? "Proceed to analysis" : "Capture"
+
+        let changes = {
+            self.shutter.layer.cornerRadius = captured ? L.proceedCorner : L.shutterDiameter / 2
+            self.shutterRing.alpha = captured ? 0 : 1
+            self.retakeButton.alpha = captured ? 1 : 0
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
+        if animated {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut], animations: changes)
+        } else {
+            changes()
+        }
+        retakeButton.isUserInteractionEnabled = captured
     }
 
     // MARK: Chrome construction
@@ -381,13 +450,13 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
         lockText.text = "On device. Nothing saved."
         lockText.textColor = .white
-        lockText.font = .systemFont(ofSize: 12, weight: .medium)
+        lockText.font = .app(12, weight: .medium)
         lockChip.addSubview(lockText)
 
         // Instruction
         instructionLabel.text = "Fill the box with the medication list"
         instructionLabel.textColor = .white
-        instructionLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        instructionLabel.font = .app(15, weight: .medium)
         instructionLabel.textAlignment = .center
         instructionLabel.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         instructionLabel.layer.cornerRadius = L.labelHeight / 2
@@ -397,7 +466,7 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         // Count
         countLabel.text = "0 medications detected"
         countLabel.textColor = .white
-        countLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        countLabel.font = .app(15, weight: .semibold)
         countLabel.textAlignment = .center
         countLabel.backgroundColor = stanfordRed.withAlphaComponent(0.92)
         countLabel.layer.cornerRadius = L.countHeight / 2
@@ -411,14 +480,29 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         shutterRing.isUserInteractionEnabled = false
         view.addSubview(shutterRing)
 
+        // Green circle while scanning; morphs into a green "Proceed" square
+        // once a capture has been taken.
         shutter.layer.cornerRadius = L.shutterDiameter / 2
-        shutter.backgroundColor = .white
-        shutter.accessibilityLabel = "Capture and analyze"
+        shutter.backgroundColor = .actionGreen
+        shutter.setTitleColor(.white, for: .normal)
+        shutter.titleLabel?.font = .app(17, weight: .semibold)
+        shutter.accessibilityLabel = "Capture"
         shutter.addTarget(self, action: #selector(shutterDown), for: .touchDown)
         shutter.addTarget(self, action: #selector(shutterUp),
                           for: [.touchUpInside, .touchUpOutside, .touchCancel])
-        shutter.addTarget(self, action: #selector(captureNow), for: .touchUpInside)
+        shutter.addTarget(self, action: #selector(shutterTapped), for: .touchUpInside)
         view.addSubview(shutter)
+
+        // Retake, only visible after a capture.
+        retakeButton.setTitle("Retake", for: .normal)
+        retakeButton.setTitleColor(.white, for: .normal)
+        retakeButton.titleLabel?.font = .app(15, weight: .medium)
+        retakeButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        retakeButton.layer.cornerRadius = L.proceedCorner
+        retakeButton.alpha = 0
+        retakeButton.isUserInteractionEnabled = false
+        retakeButton.addTarget(self, action: #selector(retake), for: .touchUpInside)
+        view.addSubview(retakeButton)
     }
 
     // MARK: Chrome layout
@@ -437,9 +521,24 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         shutterRing.frame = CGRect(x: (w - L.ringDiameter) / 2,
                                    y: shutterCenterY - L.ringDiameter / 2,
                                    width: L.ringDiameter, height: L.ringDiameter)
-        shutter.frame = CGRect(x: (w - L.shutterDiameter) / 2,
-                               y: shutterCenterY - L.shutterDiameter / 2,
-                               width: L.shutterDiameter, height: L.shutterDiameter)
+
+        switch phase {
+        case .scanning:
+            shutter.frame = CGRect(x: (w - L.shutterDiameter) / 2,
+                                   y: shutterCenterY - L.shutterDiameter / 2,
+                                   width: L.shutterDiameter, height: L.shutterDiameter)
+            retakeButton.frame = CGRect(x: (w - L.proceedWidth) / 2 - 12 - L.retakeWidth,
+                                        y: shutterCenterY - L.proceedHeight / 2,
+                                        width: L.retakeWidth, height: L.proceedHeight)
+        case .captured:
+            // Proceed square centred; Retake sits to its left.
+            shutter.frame = CGRect(x: (w - L.proceedWidth) / 2,
+                                   y: shutterCenterY - L.proceedHeight / 2,
+                                   width: L.proceedWidth, height: L.proceedHeight)
+            retakeButton.frame = CGRect(x: shutter.frame.minX - 12 - L.retakeWidth,
+                                        y: shutter.frame.minY,
+                                        width: L.retakeWidth, height: L.proceedHeight)
+        }
 
         let countY = shutterRing.frame.minY - L.gutter - L.countHeight
         countLabel.frame = CGRect(x: (w - L.countWidth) / 2, y: countY,
