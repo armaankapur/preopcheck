@@ -23,6 +23,8 @@ struct ResultsView: View {
     @EnvironmentObject var caseStore: CaseStore
     @State private var showUnmatched = false
     @State private var saved = false
+    /// Rows the clinician has tapped open to see the full notes.
+    @State private var expanded: Set<String> = []
 
     // MARK: Buckets
 
@@ -68,8 +70,7 @@ struct ResultsView: View {
                 if !holds.isEmpty {
                     section("Hold", accent: .stanford, prominent: true) {
                         ForEach(holds) { med in
-                            medicationRow(med, badge: badgeText(for: med),
-                                          badgeColor: .stanford, prominent: true)
+                            medicationRow(med, verdictColor: .stanford, prominent: true)
                             divider(after: med, in: holds, inset: 20)
                         }
                     }
@@ -78,8 +79,7 @@ struct ResultsView: View {
                 if !consults.isEmpty {
                     section("Consult", accent: .orange, prominent: true) {
                         ForEach(consults) { med in
-                            medicationRow(med, badge: "CONSULT",
-                                          badgeColor: .orange, prominent: true)
+                            medicationRow(med, verdictColor: .orange, prominent: true)
                             divider(after: med, in: consults, inset: 20)
                         }
                     }
@@ -88,8 +88,7 @@ struct ResultsView: View {
                 if !takeAsDirected.isEmpty {
                     section("Take as directed", accent: .actionGreen, prominent: false) {
                         ForEach(takeAsDirected) { med in
-                            medicationRow(med, badge: "TAKE",
-                                          badgeColor: .actionGreen, prominent: false)
+                            medicationRow(med, verdictColor: .actionGreen, prominent: false)
                             divider(after: med, in: takeAsDirected, inset: 16)
                         }
                     }
@@ -185,75 +184,103 @@ struct ResultsView: View {
 
     // MARK: Rows
 
+    /// One line per drug: the name on the left, the verdict on the right.
+    /// Tapping the row shows the full notes (class, detail, considerations,
+    /// concern, half-life, pediatric cardiac) underneath, so nothing from the
+    /// guideline is lost, it is just folded away.
     private func medicationRow(_ med: ResolvedMedication,
-                               badge: String,
-                               badgeColor: Color,
+                               verdictColor: Color,
                                prominent: Bool) -> some View {
         let drug = med.match.drug
-        let nameSize: CGFloat = prominent ? 19 : 15
-        let pad: CGFloat = prominent ? 20 : 16
+        let isExpanded = expanded.contains(med.id)
+        let size: CGFloat = prominent ? 17 : 15
+        let pad: CGFloat = prominent ? 18 : 14
 
-        // The badge shares a line with the name only, so everything below
-        // (detail, considerations, notes) gets the full card width.
-        return VStack(alignment: .leading, spacing: prominent ? 6 : 4) {
-            HStack(alignment: .top, spacing: 10) {
-                Text(drug.displayName)
-                    .font(.app(nameSize, .semibold))
-                    .foregroundColor(.inkPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Text(badge)
-                    .font(.app(prominent ? 11 : 10, .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, prominent ? 11 : 9)
-                    .padding(.vertical, prominent ? 6 : 5)
-                    .background(badgeColor)
-                    .cornerRadius(20)
-                    .fixedSize()
+        return VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation {
+                    if isExpanded { expanded.remove(med.id) } else { expanded.insert(med.id) }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(drug.displayName)
+                        .font(.app(size, .semibold))
+                        .foregroundColor(.inkPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if med.match.needsVerification { verifyBadge }
+                    Spacer(minLength: 8)
+                    // The verdict never shrinks or truncates; the name gives way first.
+                    Text(verdict(for: med.action))
+                        .font(.app(size, .bold))
+                        .foregroundColor(verdictColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.app(11))
+                        .foregroundColor(.inkTertiary)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            HStack(spacing: 6) {
-                Text(drug.drugClass)
-                    .font(.app(prominent ? 13 : 12))
-                    .foregroundColor(.inkSecondary)
-                if med.match.needsVerification { verifyBadge }
-            }
-
-            Text(med.action.label)
-                .font(.app(prominent ? 16 : 13, .semibold))
-                .foregroundColor(.stanford)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let detail = drug.guidance.detail {
-                Text(detail)
-                    .font(.app(13))
-                    .foregroundColor(.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !med.considerations.isEmpty {
-                considerationsBox(med.considerations)
-            }
-
-            if let concern = drug.guidance.concern {
-                Text("Concern: \(concern)")
-                    .font(.app(12))
-                    .foregroundColor(.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let half = drug.halfLifeHours {
-                Text("Half-life \(half, specifier: "%.1f") h")
-                    .font(.app(11))
-                    .foregroundColor(.inkTertiary)
-            }
-
-            if let peds = drug.guidance.pediatricCardiac {
-                pediatricNote(peds)
+            if isExpanded {
+                details(for: med)
             }
         }
         .padding(pad)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The short verdict shown on the one-line row. Same instruction as
+    /// `Action.label`, just without "prior to surgery".
+    private func verdict(for action: Action) -> String {
+        switch action {
+        case .takeAsDirected:     return "Take as directed"
+        case .holdDayOfSurgery:   return "Hold day of surgery"
+        case .holdHours(let h):   return "Hold \(h) hours"
+        case .holdDays(let d):    return d == 21 ? "Hold 3 weeks" : "Hold \(d) days"
+        case .consult(let who):   return "Consult \(who)"
+        case .variable(let what): return what
+        }
+    }
+
+    /// Everything that used to sit under the name, shown when the row is tapped.
+    @ViewBuilder
+    private func details(for med: ResolvedMedication) -> some View {
+        let drug = med.match.drug
+
+        Text(drug.drugClass)
+            .font(.app(13))
+            .foregroundColor(.inkSecondary)
+
+        if let detail = drug.guidance.detail {
+            Text(detail)
+                .font(.app(13))
+                .foregroundColor(.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if !med.considerations.isEmpty {
+            considerationsBox(med.considerations)
+        }
+
+        if let concern = drug.guidance.concern {
+            Text("Concern: \(concern)")
+                .font(.app(12))
+                .foregroundColor(.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if let half = drug.halfLifeHours {
+            Text("Half-life \(half, specifier: "%.1f") h")
+                .font(.app(11))
+                .foregroundColor(.inkTertiary)
+        }
+
+        if let peds = drug.guidance.pediatricCardiac {
+            pediatricNote(peds)
+        }
     }
 
     /// Read-only list of every branch of a drug's guidance. Replaces the old
@@ -295,15 +322,6 @@ struct ResultsView: View {
         .background(Color.stanfordLight)
         .cornerRadius(10)
         .padding(.top, 4)
-    }
-
-    private func badgeText(for med: ResolvedMedication) -> String {
-        switch med.action {
-        case .holdDayOfSurgery: return "HOLD DOS"
-        case .holdHours(let h):  return "\(h)H"
-        case .holdDays(let d):   return "\(d)D"
-        default:                 return "HOLD"
-        }
     }
 
     private var verifyBadge: some View {
