@@ -117,6 +117,11 @@ struct ResultsView: View {
                 saveButton
                 disclaimer
             }
+            // Same column width everywhere: on iPad and in landscape the
+            // content stays a phone-like column, centred, instead of
+            // stretching the name and pill to opposite edges.
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.stanfordLight)
     }
@@ -203,18 +208,23 @@ struct ResultsView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(drug.displayName)
+                    // Generic name only. Brand names live in the expanded notes.
+                    Text(drug.generic)
                         .font(.app(size, .semibold))
                         .foregroundColor(.inkPrimary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     if med.match.needsVerification { verifyBadge }
                     Spacer(minLength: 8)
-                    // The verdict never shrinks or truncates; the name gives way first.
+                    // The verdict pill never shrinks or truncates; the name gives way first.
                     Text(verdict(for: med.action))
-                        .font(.app(size, .bold))
-                        .foregroundColor(verdictColor)
+                        .font(.app(prominent ? 12 : 11, .bold))
+                        .foregroundColor(.white)
                         .lineLimit(1)
+                        .padding(.horizontal, prominent ? 11 : 9)
+                        .padding(.vertical, prominent ? 6 : 5)
+                        .background(verdictColor)
+                        .cornerRadius(20)
                         .fixedSize()
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.app(11))
@@ -232,16 +242,16 @@ struct ResultsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The short verdict shown on the one-line row. Same instruction as
-    /// `Action.label`, just without "prior to surgery".
+    /// The short verdict on the pill at the right of the one-line row:
+    /// how long to hold, CONSULT, or TAKE. The full instruction
+    /// (`Action.label`) is in the expanded notes.
     private func verdict(for action: Action) -> String {
         switch action {
-        case .takeAsDirected:     return "Take as directed"
-        case .holdDayOfSurgery:   return "Hold day of surgery"
-        case .holdHours(let h):   return "Hold \(h) hours"
-        case .holdDays(let d):    return d == 21 ? "Hold 3 weeks" : "Hold \(d) days"
-        case .consult(let who):   return "Consult \(who)"
-        case .variable(let what): return what
+        case .takeAsDirected:    return "TAKE"
+        case .holdDayOfSurgery:  return "HOLD DOS"
+        case .holdHours(let h):  return "\(h)H"
+        case .holdDays(let d):   return "\(d)D"
+        case .consult, .variable: return "CONSULT"
         }
     }
 
@@ -249,6 +259,19 @@ struct ResultsView: View {
     @ViewBuilder
     private func details(for med: ResolvedMedication) -> some View {
         let drug = med.match.drug
+
+        // The full instruction, since the pill only shows the short form.
+        Text(med.action.label)
+            .font(.app(14, .semibold))
+            .foregroundColor(.stanford)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if !drug.brands.isEmpty {
+            Text("Also known as: \(drug.brands.joined(separator: ", "))")
+                .font(.app(13))
+                .foregroundColor(.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
 
         Text(drug.drugClass)
             .font(.app(13))
