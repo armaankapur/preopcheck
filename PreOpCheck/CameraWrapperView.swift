@@ -52,7 +52,8 @@ struct CameraWrapperView: View {
                     }
                 }
                 .navigationDestination(isPresented: $showResults) {
-                    ResultsView(medications: resolved, unmatched: unmatched)
+                    // Saving closes the whole scan flow and lands on Home.
+                    ResultsView(medications: resolved, unmatched: unmatched, onSaved: { dismiss() })
                         .environmentObject(caseStore)
                 }
         }

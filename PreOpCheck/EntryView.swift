@@ -115,7 +115,8 @@ struct EntryView: View {
                 }
             }
             .navigationDestination(isPresented: $showResults) {
-                ResultsView(medications: results, unmatched: unmatched)
+                // Saving closes the entry sheet and lands on Home.
+                ResultsView(medications: results, unmatched: unmatched, onSaved: { dismiss() })
                     .environmentObject(caseStore)
             }
         }

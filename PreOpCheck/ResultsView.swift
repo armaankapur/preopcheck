@@ -19,6 +19,11 @@ import SwiftUI
 struct ResultsView: View {
     let medications: [ResolvedMedication]
     var unmatched: [String] = []
+    /// Called once the case is saved, after the button has shown "Case
+    /// Saved" for a moment. Each presenter uses it to return to Home, since
+    /// only the presenter knows whether this screen sits in a sheet, a
+    /// full-screen cover or the main navigation stack.
+    var onSaved: (() -> Void)? = nil
 
     @EnvironmentObject var caseStore: CaseStore
     @State private var showUnmatched = false
@@ -58,25 +63,24 @@ struct ResultsView: View {
 
     /// Switch between the grouped view (on, the default) and the order the
     /// drugs appeared on the page or were typed (off). Resets to grouped
-    /// each time the screen opens.
+    /// each time the screen opens. A small bubble, just the word and the
+    /// switch, tucked to the right of the count line.
     private var viewModePicker: some View {
-        Toggle(isOn: $grouped.animation()) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Group by category")
-                    .font(.app(15, .semibold))
-                    .foregroundColor(.inkPrimary)
-                Text(grouped ? "Hold, consult, then take as directed"
-                             : "Off: listed in the order scanned or typed")
-                    .font(.app(12))
-                    .foregroundColor(.inkSecondary)
-            }
+        HStack(spacing: 4) {
+            Text("Sort")
+                .font(.app(13, .semibold))
+                .foregroundColor(.inkPrimary)
+            Toggle("Sort", isOn: $grouped.animation())
+                .labelsHidden()
+                .controlSize(.small)
+                .tint(.actionGreen)
         }
-        .tint(.actionGreen)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .accessibilityHint("On groups by hold, consult and take as directed. Off keeps the order scanned or typed.")
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 3)
         .background(Color.white)
-        .cornerRadius(14)
-        .padding(.horizontal, 16)
+        .cornerRadius(10)
     }
 
     // MARK: Body
@@ -93,17 +97,21 @@ struct ResultsView: View {
 
     private var scrollContent: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            VStack(spacing: 12) {
                 summaryCard
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, 12)
 
                 ForEach(interactions, id: \.rule.id) { item in
                     interactionBanner(item.rule)
                 }
 
-                countLine
-                viewModePicker
+                HStack(spacing: 12) {
+                    countLine
+                    Spacer(minLength: 8)
+                    viewModePicker
+                }
+                .padding(.horizontal, 16)
 
                 if grouped {
                     if !holds.isEmpty {
@@ -162,7 +170,6 @@ struct ResultsView: View {
                     }
                 }
 
-                saveButton
                 disclaimer
             }
             // Same column width everywhere: on iPad and in landscape the
@@ -172,6 +179,15 @@ struct ResultsView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color.stanfordLight)
+        // Save Case stays on screen however long the list is, so the
+        // clinician never has to scroll to find it.
+        .safeAreaInset(edge: .bottom) {
+            saveButton
+                .padding(.vertical, 8)
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
+                .background(Color.stanfordLight)
+        }
     }
 
     // MARK: Summary
@@ -181,11 +197,11 @@ struct ResultsView: View {
     private var summaryCard: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "exclamationmark.circle.fill")
-                .font(.app(26, .semibold))
+                .font(.app(22, .semibold))
                 .foregroundColor(.white)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(summaryHeadline)
-                    .font(.app(19, .bold))
+                    .font(.app(17, .bold))
                     .foregroundColor(.white)
                 Text(summaryLine)
                     .font(.app(14))
@@ -194,10 +210,10 @@ struct ResultsView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(20)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.stanford)
-        .cornerRadius(16)
+        .cornerRadius(14)
     }
 
     private var summaryHeadline: String {
@@ -231,8 +247,6 @@ struct ResultsView: View {
             .foregroundColor(.inkSecondary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
     }
 
     // MARK: Rows
@@ -246,8 +260,10 @@ struct ResultsView: View {
                                prominent: Bool) -> some View {
         let drug = med.match.drug
         let isExpanded = expanded.contains(med.id)
-        let size: CGFloat = prominent ? 17 : 15
-        let pad: CGFloat = prominent ? 18 : 14
+        let size: CGFloat = prominent ? 16 : 15
+        // 12 points above and below a one-line name keeps the row at the
+        // 44-point tap height while fitting more rows on a page.
+        let pad: CGFloat = 12
 
         return VStack(alignment: .leading, spacing: 6) {
             Button {
@@ -269,8 +285,8 @@ struct ResultsView: View {
                         .font(.app(prominent ? 12 : 11, .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
-                        .padding(.horizontal, prominent ? 11 : 9)
-                        .padding(.vertical, prominent ? 6 : 5)
+                        .padding(.horizontal, prominent ? 10 : 8)
+                        .padding(.vertical, 4)
                         .background(verdictColor)
                         .cornerRadius(20)
                         .fixedSize()
@@ -445,20 +461,20 @@ struct ResultsView: View {
                                         accent: Color,
                                         prominent: Bool,
                                         @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: prominent ? 10 : 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(accent)
-                    .frame(width: prominent ? 12 : 8, height: prominent ? 12 : 8)
-                Text(prominent ? title.uppercased() : title.uppercased())
-                    .font(.app(prominent ? 17 : 13, prominent ? .bold : .semibold))
+                    .frame(width: prominent ? 10 : 8, height: prominent ? 10 : 8)
+                Text(title.uppercased())
+                    .font(.app(prominent ? 14 : 13, prominent ? .bold : .semibold))
                     .foregroundColor(prominent ? .inkPrimary : .inkSecondary)
             }
             .padding(.horizontal, 16)
 
             VStack(spacing: 0) { content() }
                 .background(Color.white)
-                .cornerRadius(prominent ? 18 : 14)
+                .cornerRadius(14)
                 .padding(.horizontal, 16)
         }
     }
@@ -510,6 +526,11 @@ struct ResultsView: View {
         Button {
             caseStore.save(medications)
             saved = true
+            // Let "Case Saved" register before leaving the screen.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.7))
+                onSaved?()
+            }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: saved ? "checkmark.circle.fill" : "square.and.arrow.down")
@@ -542,6 +563,30 @@ struct ResultsView: View {
         .background(Color.white)
         .cornerRadius(10)
         .padding(.horizontal, 16)
-        .padding(.bottom, 32)
+        .padding(.bottom, 8)
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Short list") {
+    let outcome = MedicationResolver.demo()
+    NavigationStack {
+        ResultsView(medications: outcome.medications, unmatched: outcome.unmatched)
+            .environmentObject(CaseStore())
+    }
+}
+
+#Preview("Long Epic-style list") {
+    let outcome = MedicationResolver.resolve(lines: [
+        "Acetaminophen (Tylenol) 500 mg", "Amlodipine (Norvasc) 5 mg", "Atorvastatin (Lipitor) 20 mg",
+        "Losartan (Cozaar) 50 mg", "Metformin (Glucophage) 500 mg", "Omeprazole (Prilosec) 20 mg",
+        "Sertraline (Zoloft) 50 mg", "Albuterol HFA (ProAir HFA)", "Fluticasone (Flonase)",
+        "Lisinopril 10 mg", "Furosemide 20 mg", "Enoxaparin 40 mg", "Metoprolol succinate 25 mg",
+        "Ibuprofen 400 mg", "Semaglutide 1 mg weekly", "Cetirizine 10 mg", "Montelukast 5 mg"
+    ])
+    NavigationStack {
+        ResultsView(medications: outcome.medications, unmatched: outcome.unmatched)
+            .environmentObject(CaseStore())
     }
 }
