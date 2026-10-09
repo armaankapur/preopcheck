@@ -40,7 +40,9 @@ struct HomeView: View {
             EntryView()
                 .environmentObject(caseStore)
         }
-        .sheet(isPresented: $showScanner) {
+        // Full screen, not a sheet: on iPad a sheet is a small card in the
+        // middle of the display, which left the camera preview tiny.
+        .fullScreenCover(isPresented: $showScanner) {
             // CameraWrapperView owns the permission gate, the privacy
             // explainer and the push to results, so nothing is wired here.
             CameraWrapperView()

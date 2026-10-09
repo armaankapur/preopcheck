@@ -115,6 +115,11 @@ struct CameraWrapperView: View {
     }
 
     private func checkPermission() {
+        #if targetEnvironment(simulator)
+        // No camera in the Simulator; the scanner shows a built-in sample page.
+        permission = .authorized
+        return
+        #endif
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             permission = .authorized

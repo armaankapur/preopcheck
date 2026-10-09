@@ -22,6 +22,15 @@ import SwiftUI
 import UIKit
 import Combine
 
+// MARK: - Switch
+
+/// Master switch for both layers below. Off for now so testers can take
+/// screenshots and screen recordings while the UI is being reviewed.
+/// Set back to `true` before any build that may hold real patient data.
+enum ScreenCaptureProtection {
+    static let isEnabled = false
+}
+
 // MARK: - Secure container
 
 /// Hosts SwiftUI content inside a secure text field's canvas layer.
@@ -91,8 +100,14 @@ struct SecureContainer<Content: View>: UIViewRepresentable {
 
 extension View {
     /// Wraps the view so it is blacked out in screenshots and recordings.
+    /// Passes the view through untouched while the master switch is off.
+    @ViewBuilder
     func screenCaptureProtected() -> some View {
-        SecureContainer { self }
+        if ScreenCaptureProtection.isEnabled {
+            SecureContainer { self }
+        } else {
+            self
+        }
     }
 }
 
@@ -171,8 +186,14 @@ private struct ScreenCaptureNotice: ViewModifier {
 extension View {
     /// Shows a brief privacy overlay when a screenshot is taken or screen
     /// recording starts. Apply outside `screenCaptureProtected()` so the
-    /// overlay itself is visible on the device.
+    /// overlay itself is visible on the device. Does nothing while the
+    /// master switch is off.
+    @ViewBuilder
     func screenCaptureNotice() -> some View {
-        modifier(ScreenCaptureNotice())
+        if ScreenCaptureProtection.isEnabled {
+            modifier(ScreenCaptureNotice())
+        } else {
+            self
+        }
     }
 }

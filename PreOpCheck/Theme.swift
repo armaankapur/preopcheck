@@ -27,6 +27,10 @@ extension Color {
 extension UIColor {
     /// UIKit twin of `Color.actionGreen`, for the camera chrome.
     static let actionGreen = UIColor(red: 0x1E / 255, green: 0x8E / 255, blue: 0x3E / 255, alpha: 1)
+
+    /// Tint laid over the blur that hides patient details on the scanner, so
+    /// the bar reads as deliberately covered rather than out of focus.
+    static let redactionTint = UIColor.black.withAlphaComponent(0.12)
 }
 
 // MARK: - Typography

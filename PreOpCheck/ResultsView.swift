@@ -25,6 +25,9 @@ struct ResultsView: View {
     @State private var saved = false
     /// Rows the clinician has tapped open to see the full notes.
     @State private var expanded: Set<String> = []
+    /// Grouped by Hold / Consult / Take (default), or in the order the drugs
+    /// appeared on the page or were typed.
+    @State private var grouped = true
 
     // MARK: Buckets
 
@@ -40,15 +43,49 @@ struct ResultsView: View {
     private var interactions: [(rule: InteractionRule, drug: Drug)] {
         MedicationDatabase.applyInteractionRules(to: medications.map { $0.match.drug })
     }
+    /// Source order: top of the scanned page first, or as typed.
+    private var inOrder: [ResolvedMedication] {
+        medications.sorted { $0.order < $1.order }
+    }
+
+    private func verdictColor(for med: ResolvedMedication) -> Color {
+        switch med.action.severity {
+        case .hold:           return .stanford
+        case .consult:        return .orange
+        case .takeAsDirected: return .actionGreen
+        }
+    }
+
+    /// Switch between the grouped view (on, the default) and the order the
+    /// drugs appeared on the page or were typed (off). Resets to grouped
+    /// each time the screen opens.
+    private var viewModePicker: some View {
+        Toggle(isOn: $grouped.animation()) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Group by category")
+                    .font(.app(15, .semibold))
+                    .foregroundColor(.inkPrimary)
+                Text(grouped ? "Hold, consult, then take as directed"
+                             : "Off: listed in the order scanned or typed")
+                    .font(.app(12))
+                    .foregroundColor(.inkSecondary)
+            }
+        }
+        .tint(.actionGreen)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white)
+        .cornerRadius(14)
+        .padding(.horizontal, 16)
+    }
 
     // MARK: Body
 
     var body: some View {
-        SecureContainer {
-            scrollContent
-                .environmentObject(caseStore)
-        }
-        .background(Color.stanfordLight)
+        scrollContent
+            .environmentObject(caseStore)
+            .screenCaptureProtected()
+            .background(Color.stanfordLight)
         .screenCaptureNotice()
         .navigationTitle("Pre-op Check")
         .navigationBarTitleDisplayMode(.inline)
@@ -66,30 +103,41 @@ struct ResultsView: View {
                 }
 
                 countLine
+                viewModePicker
 
-                if !holds.isEmpty {
-                    section("Hold", accent: .stanford, prominent: true) {
-                        ForEach(holds) { med in
-                            medicationRow(med, verdictColor: .stanford, prominent: true)
-                            divider(after: med, in: holds, inset: 20)
+                if grouped {
+                    if !holds.isEmpty {
+                        section("Hold", accent: .stanford, prominent: true) {
+                            ForEach(holds) { med in
+                                medicationRow(med, verdictColor: .stanford, prominent: true)
+                                divider(after: med, in: holds, inset: 20)
+                            }
                         }
                     }
-                }
 
-                if !consults.isEmpty {
-                    section("Consult", accent: .orange, prominent: true) {
-                        ForEach(consults) { med in
-                            medicationRow(med, verdictColor: .orange, prominent: true)
-                            divider(after: med, in: consults, inset: 20)
+                    if !consults.isEmpty {
+                        section("Consult", accent: .orange, prominent: true) {
+                            ForEach(consults) { med in
+                                medicationRow(med, verdictColor: .orange, prominent: true)
+                                divider(after: med, in: consults, inset: 20)
+                            }
                         }
                     }
-                }
 
-                if !takeAsDirected.isEmpty {
-                    section("Take as directed", accent: .actionGreen, prominent: false) {
-                        ForEach(takeAsDirected) { med in
-                            medicationRow(med, verdictColor: .actionGreen, prominent: false)
-                            divider(after: med, in: takeAsDirected, inset: 16)
+                    if !takeAsDirected.isEmpty {
+                        section("Take as directed", accent: .actionGreen, prominent: false) {
+                            ForEach(takeAsDirected) { med in
+                                medicationRow(med, verdictColor: .actionGreen, prominent: false)
+                                divider(after: med, in: takeAsDirected, inset: 16)
+                            }
+                        }
+                    }
+                } else if !inOrder.isEmpty {
+                    // One list in source order; each pill carries its own colour.
+                    section("Medications", accent: .inkSecondary, prominent: true) {
+                        ForEach(inOrder) { med in
+                            medicationRow(med, verdictColor: verdictColor(for: med), prominent: true)
+                            divider(after: med, in: inOrder, inset: 20)
                         }
                     }
                 }

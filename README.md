@@ -95,4 +95,4 @@ Home screen in the iOS Simulator (iPhone 17):
 
 - Section exclusion assumes allergies appear below the medication list, which matches every EHR printout seen so far. A layout with allergies above medications would drop the medications.
 - The guideline is pediatric only.
-- The XCTest target is scaffolding. Matcher tests are the obvious next addition.
+- Tests cover the matcher only (`DrugMatcherTests.swift`). The resolver, section exclusion and results bucketing are not tested yet.

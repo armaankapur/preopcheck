@@ -193,6 +193,9 @@ final class DrugMatcher {
         for candidate in blockIndex[prefix] ?? [] {
             // Length gate: a real OCR error does not change length much.
             guard abs(candidate.count - phrase.count) <= bound else { continue }
+            // Variant gate: "vitamin d3" is within two edits of "vitamin c",
+            // but the difference is the product, not an OCR slip.
+            if DrugMatcher.differsOnlyInVariantTag(phrase, candidate) { continue }
             let d = DrugMatcher.editDistance(phrase, candidate, limit: bound)
             guard d <= bound else { continue }
             if best == nil || d < best!.distance {
@@ -246,6 +249,26 @@ final class DrugMatcher {
         }
     }
 
+    // MARK: Variant tags
+
+    /// True when two normalised names share every word except the last, and
+    /// the last word is a short variant tag on at least one side: a letter or
+    /// letter-plus-number such as "c", "d3", "b12", or a form code like "xr".
+    /// Such a difference names a different product, never an OCR slip, so
+    /// fuzzy matching must not bridge it. Exact and salt-stripped matching
+    /// do not consult this.
+    static func differsOnlyInVariantTag(_ a: String, _ b: String) -> Bool {
+        let ta = a.split(separator: " "), tb = b.split(separator: " ")
+        guard ta.count >= 2, ta.count == tb.count else { return false }
+        guard ta.dropLast().elementsEqual(tb.dropLast()) else { return false }
+        guard let la = ta.last, let lb = tb.last, la != lb else { return false }
+        return isVariantTag(la) || isVariantTag(lb)
+    }
+
+    private static func isVariantTag(_ word: Substring) -> Bool {
+        word.count <= 3 || word.contains { $0.isNumber }
+    }
+
     // MARK: Edit distance
 
     /// Damerau-Levenshtein with early exit. Transposition matters because
@@ -284,6 +307,10 @@ final class DrugMatcher {
 /// the clinician as read-only considerations.
 struct ResolvedMedication: Identifiable {
     let match: DrugMatch
+
+    /// Position in the source: top to bottom on the scanned page, or the
+    /// order typed or saved. Drives the "In order" view on the results screen.
+    var order: Int = 0
 
     var id: String { match.id }
 

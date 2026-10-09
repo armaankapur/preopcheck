@@ -36,6 +36,7 @@ enum MedicationResolver {
 
     static func resolve(lines: [String]) -> Outcome {
         var found: [String: DrugMatch] = [:]
+        var sequence: [String] = []        // ids in the order first typed
         var unmatched: [String] = []
 
         for line in lines {
@@ -55,18 +56,28 @@ enum MedicationResolver {
                     if m.matchKind > existing.matchKind { found[m.id] = m }
                 } else {
                     found[m.id] = m
+                    sequence.append(m.id)
                 }
             }
         }
 
-        return Outcome(medications: wrap(Array(found.values)), unmatched: unmatched)
+        let typedOrder = sequence.compactMap { found[$0] }
+        return Outcome(medications: wrap(typedOrder), unmatched: unmatched)
     }
 
     // MARK: Scan output
 
-    /// Scanner already ran the matcher, so this only wraps.
+    /// Scanner already ran the matcher, so this only orders and wraps.
+    /// Order is top of the page first. Vision's y axis points up, so a larger
+    /// maxY is higher on the page; ties fall back to left to right.
     static func resolve(matches: [DrugMatch]) -> Outcome {
-        Outcome(medications: wrap(matches), unmatched: [])
+        let pageOrder = matches.sorted { a, b in
+            let ay = a.boxes.map(\.maxY).max() ?? -1
+            let by = b.boxes.map(\.maxY).max() ?? -1
+            if ay != by { return ay > by }
+            return (a.boxes.map(\.minX).min() ?? 0) < (b.boxes.map(\.minX).min() ?? 0)
+        }
+        return Outcome(medications: wrap(pageOrder), unmatched: [])
     }
 
     // MARK: Saved case
@@ -79,7 +90,7 @@ enum MedicationResolver {
         var medications: [ResolvedMedication] = []
         var unmatched: [String] = []
 
-        for item in saved.medications {
+        for (position, item) in saved.medications.enumerated() {
             guard let drug = MedicationDatabase.byID[item.drugID] else {
                 unmatched.append(item.matchedText)
                 continue
@@ -92,7 +103,7 @@ enum MedicationResolver {
                 boxes: []
             )
 
-            medications.append(ResolvedMedication(match: match))
+            medications.append(ResolvedMedication(match: match, order: position))
         }
 
         return Outcome(medications: medications.sorted { rank($0) < rank($1) },
@@ -101,9 +112,13 @@ enum MedicationResolver {
 
     // MARK: Shared
 
+    /// Records the incoming order on each medication, then sorts by severity
+    /// for the default grouped view. The results screen can restore the
+    /// original order from `order`.
     private static func wrap(_ matches: [DrugMatch]) -> [ResolvedMedication] {
         matches
-            .map { ResolvedMedication(match: $0) }
+            .enumerated()
+            .map { ResolvedMedication(match: $0.element, order: $0.offset) }
             .sorted { rank($0) < rank($1) }
     }
 

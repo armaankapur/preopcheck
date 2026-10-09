@@ -2,25 +2,36 @@
 //  ScannerView.swift
 //  Stanford Preoperative Medication
 //
-//  Two changes in this revision:
+//  What this screen does, top to bottom:
 //
-//  1. SECTION AWARENESS. The matcher previously matched drug names anywhere
-//     inside the guide box, including under an "Allergies" heading. On a test
-//     document listing "Codeine - nausea and vomiting" as an allergy, codeine
-//     was reported as an active medication. That is wrong in a clinically
-//     dangerous direction. Text at or below a recognized allergy heading is
-//     now excluded before matching.
+//  1. SECTION AWARENESS. Text at or below a recognised allergy-style heading
+//     is excluded before matching, so "Codeine - nausea" under ALLERGIES is
+//     never reported as an active medication.
 //
-//  2. LAYOUT. All chrome is now positioned in viewDidLayoutSubviews against
-//     the safe area rather than hardcoded in viewDidLoad, so spacing is
-//     consistent and adapts across devices. The guide box sizes itself to the
-//     space left between the top indicator and the bottom controls instead of
-//     being a fixed fraction of screen height.
+//  2. LIVE MARKERS. Green ellipses outline recognised drugs; red ellipses
+//     mark drug-looking words that matched nothing, so the clinician can see
+//     that something on the page did not scan.
 //
-//  3. TWO-STEP CAPTURE. Tapping the green shutter freezes the frame and keeps
-//     the stable matches. The shutter then becomes a green "Proceed" square;
-//     tapping it hands the matches to the delegate, which runs analysis and
-//     shows results. "Retake" restarts the session.
+//  3. AUTO-CAPTURE. There is no shutter. Once the set of recognised drugs has
+//     held steady for a second, the frame freezes and Proceed / Retake appear.
+//
+//  4. LAYOUT. Chrome is positioned from the safe area in viewDidLayoutSubviews.
+//     Portrait stacks controls below the guide box; landscape (iPad) moves them
+//     into a right-hand column so the guide box keeps its height.
+//
+//  5. PRIVACY BLUR. Lines that identify the patient (name, DOB, MRN) are
+//     blurred on screen by RedactionOverlayView; PatientIdentity decides which
+//     lines those are. Drug lines are never blurred.
+//
+//  Coordinates: the frames handed to Vision are rotated to match the screen,
+//  so a Vision box maps onto the preview with plain aspect-fill arithmetic
+//  using the frame's own size. (The preview layer's metadata conversions are
+//  relative to the sensor's native orientation and do not line up with
+//  rotated frames; using them put every marker in the wrong place.)
+//
+//  In the Simulator there is no camera, so a built-in sample medication page
+//  is fed through the same pipeline. That lets the markers and auto-capture
+//  be seen and tuned without a device.
 //
 
 import SwiftUI
@@ -82,7 +93,12 @@ private final class ScanState {
         for m in matches {
             sightings[m.id, default: 0] += 1
             if let existing = best[m.id] {
-                if m.matchKind > existing.matchKind { best[m.id] = m }
+                // Keep the strongest match kind, but always take the latest
+                // boxes so page order reflects the frame that was captured.
+                let kind = max(existing.matchKind, m.matchKind)
+                let text = m.matchKind > existing.matchKind ? m.matchedText : existing.matchedText
+                best[m.id] = DrugMatch(drug: m.drug, matchedText: text,
+                                       matchKind: kind, boxes: m.boxes)
             } else {
                 best[m.id] = m
             }
@@ -109,11 +125,36 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
     weak var delegate: ScannerViewControllerDelegate?
 
+    // Camera (device only)
     private let captureSession = AVCaptureSession()
-    private var previewLayer: AVCaptureVideoPreviewLayer!
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var videoOutput: AVCaptureVideoDataOutput?
     private let cameraQueue = DispatchQueue(label: "com.stanford.preop.camera")
 
+    // Simulator stand-in: a sample page shown in place of the camera.
+    private var sampleImage: UIImage?
+    private var samplePixelBuffer: CVPixelBuffer?
+    private var sampleTimer: Timer?
+    private let sampleLayer = CALayer()
+
     private let state = ScanState()
+
+    // Markers over the picture: one layer per drug, keyed by drug id (green)
+    // or ingredient (red). A marker fades in once its drug is stable, glides
+    // to its new position each frame, and fades out when the drug is lost.
+    private let markerHost = CALayer()
+    private var markerLayers: [String: CAShapeLayer] = [:]
+    private var markerLastSeen: [String: Date] = [:]
+    private let markerHold: TimeInterval = 0.7
+    private let markerGlide: CFTimeInterval = 0.18
+
+    // Blur bars over patient details, under the markers.
+    private let redactionOverlay = RedactionOverlayView()
+
+    /// Pixel size of the frames being recognised (already rotated to match
+    /// the screen). Written on the camera queue, read on main under
+    /// `generationLock`. Drives the Vision-to-screen mapping.
+    private var frameSize: CGSize = .zero
 
     // Chrome
     private var guideRect: CGRect = .zero
@@ -124,9 +165,13 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     private let lockText = UILabel()
     private let instructionLabel = UILabel()
     private let countLabel = UILabel()
-    private let shutterRing = UIView()
     private let shutter = UIButton(type: .custom)
     private let retakeButton = UIButton(type: .system)
+
+    // Auto-capture: fires once the set of stable drugs has stopped changing.
+    private var lastStableIDs: Set<String> = []
+    private var lastStableChange = Date()
+    private static let autoCaptureDelay: TimeInterval = 1.0
 
     /// Scanning shows a live count; captured freezes the frame and waits for
     /// the clinician to tap Proceed.
@@ -138,6 +183,8 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
     private var frameGeneration = 0
     private let generationLock = NSLock()
+    /// Guide box in Vision space, refreshed on layout, read on the camera queue.
+    private var cachedROI = CGRect(x: 0, y: 0, width: 1, height: 1)
 
     private var lastProcessTime = Date.distantPast
     private let minFrameInterval: TimeInterval = 0.3
@@ -147,17 +194,15 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     // Layout constants, one place.
     private enum L {
         static let chipHeight: CGFloat = 28
-        static let chipTopGap: CGFloat = 54     // below the safe area / nav bar
         static let gutter: CGFloat = 22         // vertical rhythm
         static let labelHeight: CGFloat = 36
         static let countHeight: CGFloat = 36
         static let countWidth: CGFloat = 236
-        static let shutterDiameter: CGFloat = 68
-        static let ringDiameter: CGFloat = 82
-        static let shutterBottomGap: CGFloat = 34
-        static let guideWidthFraction: CGFloat = 0.88
+        static let controlsHeight: CGFloat = 58
+        static let controlsBottomGap: CGFloat = 34
+        static let guideMargin: CGFloat = 12          // box edge to screen edge
+        static let navClearance: CGFloat = 50         // room for Cancel / info bar
         static let proceedWidth: CGFloat = 176
-        static let proceedHeight: CGFloat = 58
         static let proceedCorner: CGFloat = 14
         static let retakeWidth: CGFloat = 84
     }
@@ -167,22 +212,59 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        setupCamera()
+        buildDisplayStack()
+        setupFrameSource()
         buildChrome()
+        setPhase(.scanning, animated: false)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        for layer in [sampleLayer, markerHost] {
+            layer.frame = view.bounds
+        }
+        redactionOverlay.frame = view.bounds
         previewLayer?.frame = view.bounds
+        updateVideoRotation()
         layoutChrome()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        cameraQueue.async { [weak self] in self?.captureSession.stopRunning() }
+        stopFrames()
     }
 
-    // MARK: Camera
+    // MARK: Frame source
+
+    /// Camera on a device; the sample page in the Simulator.
+    private func setupFrameSource() {
+        #if targetEnvironment(simulator)
+        setupSamplePage()
+        #else
+        setupCamera()
+        #endif
+    }
+
+    private func startFrames() {
+        #if targetEnvironment(simulator)
+        sampleTimer?.invalidate()
+        sampleTimer = Timer.scheduledTimer(withTimeInterval: minFrameInterval, repeats: true) { [weak self] _ in
+            guard let self, let buffer = self.samplePixelBuffer else { return }
+            self.cameraQueue.async { self.process(pixelBuffer: buffer) }
+        }
+        #else
+        cameraQueue.async { [weak self] in self?.captureSession.startRunning() }
+        #endif
+    }
+
+    private func stopFrames() {
+        #if targetEnvironment(simulator)
+        sampleTimer?.invalidate()
+        sampleTimer = nil
+        #else
+        cameraQueue.async { [weak self] in self?.captureSession.stopRunning() }
+        #endif
+    }
 
     private func setupCamera() {
         captureSession.beginConfiguration()
@@ -198,32 +280,162 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         output.setSampleBufferDelegate(self, queue: cameraQueue)
         if captureSession.canAddOutput(output) { captureSession.addOutput(output) }
+        videoOutput = output
 
-        if let connection = output.connection(with: .video),
-           connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
-        }
-
+        // Rotation is applied per orientation in updateVideoRotation().
         captureSession.commitConfiguration()
 
-        previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.frame = view.bounds
-        view.layer.addSublayer(previewLayer)
+        let preview = AVCaptureVideoPreviewLayer(session: captureSession)
+        preview.videoGravity = .resizeAspectFill
+        preview.frame = view.bounds
+        view.layer.insertSublayer(preview, at: 0)     // under markers and chrome
+        previewLayer = preview
 
-        cameraQueue.async { [weak self] in self?.captureSession.startRunning() }
+        startFrames()
+    }
+
+    /// Keeps the camera frames upright relative to the screen. The session
+    /// used to be pinned to portrait, so on an iPad held in landscape the
+    /// preview was stretched and Vision received the text sideways, which
+    /// is a common reason a list "won't scan". Both the on-screen preview
+    /// and the frames sent to Vision get the same rotation, so the guide
+    /// box maps onto the frame correctly in every orientation.
+    private func updateVideoRotation() {
+        guard let orientation = view.window?.windowScene?.interfaceOrientation else { return }
+        let angle: CGFloat
+        switch orientation {
+        case .landscapeRight:     angle = 0
+        case .landscapeLeft:      angle = 180
+        case .portraitUpsideDown: angle = 270
+        default:                  angle = 90
+        }
+        let connections = [previewLayer?.connection, videoOutput?.connection(with: .video)]
+        for connection in connections.compactMap({ $0 })
+        where connection.isVideoRotationAngleSupported(angle) && connection.videoRotationAngle != angle {
+            connection.videoRotationAngle = angle
+        }
+    }
+
+    // MARK: Simulator sample page
+
+    /// A made-up medication printout. Rendered once, then fed through the
+    /// same recognition path as camera frames.
+    private func setupSamplePage() {
+        let image = ScannerViewController.renderSamplePage()
+        sampleImage = image
+        samplePixelBuffer = ScannerViewController.pixelBuffer(from: image)
+
+        sampleLayer.contents = image.cgImage
+        sampleLayer.contentsGravity = .resizeAspectFill
+        view.layer.insertSublayer(sampleLayer, at: 0)  // under markers and chrome
+
+        startFrames()
+    }
+
+    private static func renderSamplePage() -> UIImage {
+        let size = CGSize(width: 1242, height: 2208)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+
+            func draw(_ text: String, y: CGFloat, size fontSize: CGFloat, bold: Bool = false, color: UIColor = .black) {
+                let font = bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+                (text as NSString).draw(at: CGPoint(x: 110, y: y), withAttributes: attrs)
+            }
+
+            draw("Stanford Children's Health", y: 120, size: 44, bold: true)
+            draw("Pre-Anesthesia Visit Summary", y: 180, size: 36)
+            // Epic puts the name on its own line, surname first, then the
+            // identifiers. Both forms must come out blurred.
+            draw("SAMPLE, JANE Q", y: 250, size: 34, bold: true)
+            draw("DOB: 03/14/2015     Sex: Female     MRN: 4821937", y: 300, size: 30)
+            draw("Current Medications", y: 380, size: 40, bold: true)
+
+            let meds = [
+                "Lisinopril 10 mg tablet, once daily",
+                "Ibuprofen 400 mg tablet, every 6 hours as needed",
+                "Metoprolol succinate 25 mg, once daily",
+                "Vitamin D3 1000 IU capsule, once daily",
+                "Semaglutide 1 mg injection, weekly",
+                "Furosemide 20 mg tablet, twice daily",
+                "Cetirizine 10 mg tablet, at bedtime",
+                "Omeprazole 20 mg capsule, every morning"
+            ]
+            for (i, med) in meds.enumerated() {
+                draw("\(i + 1).  \(med)", y: 460 + CGFloat(i) * 78, size: 34)
+            }
+
+            draw("Allergies", y: 1200, size: 40, bold: true)
+            draw("Codeine - nausea and vomiting", y: 1270, size: 34)
+            draw("Penicillin - rash", y: 1340, size: 34)
+            // Footer, the way printouts repeat the name on every page.
+            draw("Jane Q. Sample     Printed 10/09/2026     Page 1 of 1", y: 1460, size: 28, color: .darkGray)
+        }
+    }
+
+    private static func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
+        guard let cg = image.cgImage else { return nil }
+        let width = cg.width, height = cg.height
+        var buffer: CVPixelBuffer?
+        let attrs: [CFString: Any] = [kCVPixelBufferCGImageCompatibilityKey: true,
+                                      kCVPixelBufferCGBitmapContextCompatibilityKey: true]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                  kCVPixelFormatType_32BGRA, attrs as CFDictionary, &buffer) == kCVReturnSuccess,
+              let pb = buffer else { return nil }
+        CVPixelBufferLockBaseAddress(pb, [])
+        defer { CVPixelBufferUnlockBaseAddress(pb, []) }
+        guard let context = CGContext(data: CVPixelBufferGetBaseAddress(pb),
+                                      width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: CVPixelBufferGetBytesPerRow(pb),
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                                | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return pb
     }
 
     // MARK: Coordinates
 
+    /// Where the aspect-filled frame lands inside the view. Both the camera
+    /// preview and the Simulator sample use aspect-fill, so this one piece of
+    /// arithmetic serves both.
+    private func sourceFrame() -> CGRect? {
+        generationLock.lock()
+        let s = frameSize
+        generationLock.unlock()
+        guard s.width > 0, s.height > 0 else { return nil }
+        let b = view.bounds
+        let scale = max(b.width / s.width, b.height / s.height)
+        let w = s.width * scale, h = s.height * scale
+        return CGRect(x: (b.width - w) / 2, y: (b.height - h) / 2, width: w, height: h)
+    }
+
+    /// Vision space is normalised with y pointing up.
+    private func visionRect(fromViewRect r: CGRect) -> CGRect {
+        guard let f = sourceFrame() else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+        let x = (r.minX - f.minX) / f.width
+        let yTop = (r.minY - f.minY) / f.height
+        let w = r.width / f.width, h = r.height / f.height
+        return CGRect(x: x, y: 1 - yTop - h, width: w, height: h)
+    }
+
+    private func viewRect(fromVisionBox b: CGRect) -> CGRect {
+        guard let f = sourceFrame() else { return .zero }
+        return CGRect(x: f.minX + b.minX * f.width,
+                      y: f.minY + (1 - b.maxY) * f.height,
+                      width: b.width * f.width,
+                      height: b.height * f.height)
+    }
+
     private func guideRectInVisionSpace() -> CGRect {
-        guard let preview = previewLayer, guideRect != .zero else {
-            return CGRect(x: 0, y: 0, width: 1, height: 1)
-        }
-        let meta = preview.metadataOutputRectConverted(fromLayerRect: guideRect)
-        return CGRect(x: meta.minX, y: 1 - meta.maxY, width: meta.width, height: meta.height)
+        guard guideRect != .zero else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+        return visionRect(fromViewRect: guideRect)
     }
 
     // MARK: Capture output
@@ -231,19 +443,32 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        process(pixelBuffer: pixelBuffer)
+    }
 
+    /// Shared by the camera and the Simulator sample page. Runs on cameraQueue.
+    private func process(pixelBuffer: CVPixelBuffer) {
         let now = Date()
         guard now.timeIntervalSince(lastProcessTime) > minFrameInterval else { return }
         lastProcessTime = now
 
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
+                          height: CVPixelBufferGetHeight(pixelBuffer))
 
         generationLock.lock()
         frameGeneration += 1
         let generation = frameGeneration
+        let sizeChanged = size != frameSize
+        frameSize = size
+        let roi = cachedROI
         generationLock.unlock()
 
-        let roi = guideRectInVisionSpace()
+        // First frame, or an orientation change: the guide box must be
+        // re-mapped against the new frame size before it is used.
+        if sizeChanged {
+            DispatchQueue.main.async { [weak self] in self?.view.setNeedsLayout() }
+        }
 
         let request = VNRecognizeTextRequest { [weak self] request, _ in
             guard let self,
@@ -318,8 +543,30 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
         let boundary = exclusionBoundary(in: observations, roi: roi)
         var frameMatches: [String: DrugMatch] = [:]
+        var greenBoxes: [String: CGRect] = [:]          // drug id -> marker box
+        var unlisted: [(ingredient: String, box: CGRect)] = []
 
+        // Lines that already carry a marker, used to recognise the detail
+        // line printed under a drug name ("acetaminophen 500 mg tablet") so
+        // it is not marked a second time. `lastPlainLine` is the most recent
+        // line with no drug on it: when a title misreads and only its detail
+        // line is recognised, the marker is promoted onto that title line.
+        var markedLines: [CGRect] = []
+        var lastPlainLine: CGRect?
+        var seenUnlisted = Set<String>()
+
+        // Privacy: every line in the frame that identifies the patient, judged
+        // before matching so lines outside the guide box count too. Any that
+        // turn out to carry a drug are dropped from this list afterwards.
+        var identityLines: [CGRect] = []
         for obs in observations {
+            if let text = obs.topCandidates(1).first?.string, PatientIdentity.isIdentityLine(text) {
+                identityLines.append(obs.boundingBox)
+            }
+        }
+
+        // Top of the page first, so "first seen" means "the title line".
+        for obs in observations.sorted(by: { $0.boundingBox.maxY > $1.boundingBox.maxY }) {
             guard roi.intersects(obs.boundingBox) else { continue }
 
             // Skip the heading itself and everything visually below it.
@@ -327,56 +574,253 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
 
             guard let candidate = obs.topCandidates(1).first else { continue }
 
-            let tokens = candidate.string
-                .split(separator: " ")
-                .map { OCRToken(text: String($0),
-                                box: obs.boundingBox,
-                                ocrConfidence: candidate.confidence) }
+            // One token per word, each with its own box so markers sit on the
+            // word rather than the whole line. Falls back to the line box.
+            let tokens = candidate.string.split(separator: " ").map { word -> OCRToken in
+                let range = word.startIndex..<word.endIndex
+                let box = (try? candidate.boundingBox(for: range))?.boundingBox ?? obs.boundingBox
+                return OCRToken(text: String(word), box: box, ocrConfidence: candidate.confidence)
+            }
 
-            for match in DrugMatcher.shared.match(tokens) {
+            let matches = DrugMatcher.shared.match(tokens)
+            for match in matches {
                 if let existing = frameMatches[match.id] {
                     frameMatches[match.id] = match.matchKind > existing.matchKind ? match : existing
                 } else {
                     frameMatches[match.id] = match
                 }
+                // First line wins (the title), and the box grows to take in
+                // a bracketed brand right after the name.
+                if greenBoxes[match.id] == nil {
+                    greenBoxes[match.id] = ScannerViewController.titleBox(hitBoxes: match.boxes, in: tokens)
+                }
+            }
+            // A line with a PARC match is done: its brand in brackets, or any
+            // other word on it, never gets a red box of its own.
+            if !matches.isEmpty {
+                markedLines.append(obs.boundingBox)
+                continue
+            }
+
+            // Red: a known drug (per the lexicon) that PARC has nothing on.
+            // One box per line covering name and brand together. A drug whose
+            // ingredient was already marked higher up (the detail line under
+            // "Vitamin D3" says "cholecalciferol") is skipped.
+            let hits = ScannerViewController.unlistedDrugHits(in: tokens)
+                .filter { !seenUnlisted.contains($0.ingredient) }
+            guard !hits.isEmpty else {
+                lastPlainLine = obs.boundingBox
+                continue
+            }
+
+            let isDetail = ScannerViewController.looksLikeDetailLine(candidate.string)
+            var box = ScannerViewController.titleBox(hitBoxes: hits.map(\.box), in: tokens)
+            if isDetail {
+                if ScannerViewController.isDirectlyBelow(obs.boundingBox, markedLines) {
+                    continue            // detail line of a drug already marked
+                }
+                if let title = lastPlainLine,
+                   ScannerViewController.isDirectlyBelow(obs.boundingBox, [title]) {
+                    box = title         // title misread: mark the title line instead
+                }
+            }
+
+            hits.forEach { seenUnlisted.insert($0.ingredient) }
+            unlisted.append((hits[0].ingredient, box))
+            markedLines.append(obs.boundingBox)
+        }
+
+        // Non-drug text is never retained. Only box positions leave this
+        // function, for drawing; the words themselves are discarded.
+        state.record(Array(frameMatches.values))
+        let stableIDs = Set(state.stableMatches().map(\.id))
+
+        // Green: exactly one box per drug, on its title line.
+        let green: [(key: String, box: CGRect)] = greenBoxes.map { ($0.key, $0.value) }
+        let red: [(key: String, box: CGRect)] = unlisted.map { ("red:" + $0.ingredient, $0.box) }
+        let redactions = identityLines.filter { line in
+            !markedLines.contains { $0.intersects(line) }
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.phase == .scanning else { return }
+            self.updateCount(stableIDs.count)
+            self.redactionOverlay.update(with: redactions.map(self.viewRect(fromVisionBox:)))
+            self.drawMarkers(green: green, red: red)
+            self.checkAutoCapture(stableIDs)
+        }
+    }
+
+    /// Phrases on one line that the drug lexicon knows, with their ingredient
+    /// key and box. Tries multi-word names first, longest span wins. Returns
+    /// nothing while no lexicon is bundled.
+    private static func unlistedDrugHits(in tokens: [OCRToken]) -> [(ingredient: String, box: CGRect)] {
+        let lexicon = DrugLexicon.shared
+        guard !lexicon.isEmpty, !tokens.isEmpty else { return [] }
+
+        let norms = tokens.map { DrugMatcher.normalize($0.text) }
+        var consumed = Set<Int>()
+        var hits: [(ingredient: String, box: CGRect)] = []
+
+        for span in stride(from: min(lexicon.maxWords, tokens.count), through: 1, by: -1) {
+            for start in 0...(tokens.count - span) {
+                let range = start..<(start + span)
+                if range.contains(where: { consumed.contains($0) }) { continue }
+                let phrase = norms[range].filter { !$0.isEmpty }.joined(separator: " ")
+                guard phrase.count >= 4, let ingredient = lexicon.ingredient(for: phrase) else { continue }
+                let union = tokens[range].dropFirst().reduce(tokens[start].box) { $0.union($1.box) }
+                hits.append((ingredient, union))
+                range.forEach { consumed.insert($0) }
+            }
+        }
+        return hits
+    }
+
+    /// The marker box for a drug on one line: the words that matched, plus a
+    /// bracketed brand name immediately after them, so "Metformin (Glucophage)"
+    /// is boxed as one even when the brand is in neither list.
+    private static func titleBox(hitBoxes: [CGRect], in tokens: [OCRToken]) -> CGRect {
+        guard var box = hitBoxes.first else { return .zero }
+        hitBoxes.dropFirst().forEach { box = box.union($0) }
+
+        guard let last = tokens.lastIndex(where: { hitBoxes.contains($0.box) }) else { return box }
+        var i = last + 1
+        guard i < tokens.count, tokens[i].text.hasPrefix("(") else { return box }
+        while i < tokens.count, i <= last + 3 {
+            box = box.union(tokens[i].box)
+            if tokens[i].text.hasSuffix(")") { break }
+            i += 1
+        }
+        return box
+    }
+
+    /// Epic prints a detail line under each drug: lowercase, with a strength
+    /// and a form ("acetaminophen 500 mg tablet"). Both cues are required, so
+    /// a one-line printed list that happens to be lowercase is not affected.
+    private static func looksLikeDetailLine(_ text: String) -> Bool {
+        guard text.first?.isLowercase == true else { return false }
+        let words = Set(DrugMatcher.normalize(text).split(separator: " ").map(String.init))
+        return !words.isDisjoint(with: detailWords)
+    }
+
+    private static let detailWords: Set<String> = [
+        "mg", "mcg", "g", "ml", "unit", "units", "iu", "meq", "tablet", "tablets", "capsule",
+        "capsules", "spray", "puff", "puffs", "patch", "solution", "suspension", "injection",
+        "inhaler", "actuation", "drops", "cream", "ointment", "chewable", "syrup", "lozenge"
+    ]
+
+    /// True when `line` sits directly under one of `lines`: within about one
+    /// and a half line heights. Vision's y axis points up, so "below" means
+    /// a smaller y.
+    private static func isDirectlyBelow(_ line: CGRect, _ lines: [CGRect]) -> Bool {
+        lines.contains { above in
+            let gap = above.minY - line.maxY
+            return gap > -line.height * 0.3 && gap < line.height * 1.5
+        }
+    }
+
+    // MARK: Markers
+
+    /// One rounded box per drug. Existing markers glide to their new place,
+    /// new ones fade in, and markers not seen for `markerHold` fade out.
+    /// Each incoming rect already covers every word of its drug.
+    private func drawMarkers(green: [(key: String, box: CGRect)], red: [(key: String, box: CGRect)]) {
+        let now = Date()
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(markerGlide)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+
+        for (isGreen, items) in [(true, green), (false, red)] {
+            for item in items {
+                let r = ScannerViewController.markerRect(viewRect(fromVisionBox: item.box))
+                let layer = markerLayers[item.key] ?? makeMarker(green: isGreen, at: r)
+                markerLayers[item.key] = layer
+                markerLastSeen[item.key] = now
+                // Animating bounds + position keeps the path static, so the
+                // move is a smooth glide rather than a path morph.
+                layer.bounds = CGRect(origin: .zero, size: r.size)
+                layer.position = CGPoint(x: r.midX, y: r.midY)
+                layer.path = UIBezierPath(roundedRect: layer.bounds,
+                                          cornerRadius: min(8, r.height / 2)).cgPath
+                layer.opacity = 1
             }
         }
 
-        // Non-drug text is never retained. There is no discard step because it
-        // never leaves this function.
-        state.record(Array(frameMatches.values))
-        let stableCount = state.stableMatches().count
-
-        DispatchQueue.main.async { [weak self] in
-            self?.updateCount(stableCount)
+        for (key, seen) in markerLastSeen where now.timeIntervalSince(seen) > markerHold {
+            if let layer = markerLayers[key] {
+                layer.opacity = 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + markerGlide) { [weak layer] in
+                    layer?.removeFromSuperlayer()
+                }
+            }
+            markerLayers[key] = nil
+            markerLastSeen[key] = nil
         }
+
+        CATransaction.commit()
+    }
+
+    private func makeMarker(green: Bool, at r: CGRect) -> CAShapeLayer {
+        let layer = CAShapeLayer()
+        layer.strokeColor = (green ? UIColor.actionGreen : UIColor.systemRed).cgColor
+        layer.fillColor = nil
+        layer.lineWidth = green ? 2.5 : 2
+        layer.bounds = CGRect(origin: .zero, size: r.size)
+        layer.position = CGPoint(x: r.midX, y: r.midY)
+        layer.opacity = 0
+        markerHost.addSublayer(layer)
+        return layer
+    }
+
+    private func clearMarkers() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        markerLayers.values.forEach { $0.removeFromSuperlayer() }
+        markerLayers.removeAll()
+        markerLastSeen.removeAll()
+        CATransaction.commit()
+    }
+
+    /// A little breathing room around the text.
+    private static func markerRect(_ r: CGRect) -> CGRect {
+        r.insetBy(dx: -r.height * 0.3, dy: -r.height * 0.2)
+    }
+
+    // MARK: Auto-capture
+
+    /// Captures on its own once the set of stable drugs has not changed for
+    /// `autoCaptureDelay`. Panning across a long list keeps adding drugs,
+    /// which keeps resetting the clock, so capture waits for the list to settle.
+    private func checkAutoCapture(_ ids: Set<String>) {
+        let now = Date()
+        if ids != lastStableIDs {
+            lastStableIDs = ids
+            lastStableChange = now
+            return
+        }
+        guard !ids.isEmpty,
+              now.timeIntervalSince(lastStableChange) >= ScannerViewController.autoCaptureDelay
+        else { return }
+        capture()
     }
 
     // MARK: Capture
 
+    /// The button is only visible after a capture, where it reads "Proceed".
     @objc private func shutterTapped() {
-        switch phase {
-        case .scanning: capture()
-        case .captured: proceed()
-        }
+        guard phase == .captured else { return }
+        proceed()
     }
 
-    /// Step one: freeze the frame and keep what was read.
+    /// Step one: freeze the frame and keep what was read. Triggered
+    /// automatically by `checkAutoCapture`, never by a shutter press.
     private func capture() {
         let matches = state.stableMatches()
-
-        guard !matches.isEmpty else {
-            let alert = UIAlertController(
-                title: "No medications detected",
-                message: "Hold the camera steady and make sure the medication list fills the box.",
-                preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-            return
-        }
+        guard !matches.isEmpty, phase == .scanning else { return }
 
         capturedMatches = matches
-        cameraQueue.async { [weak self] in self?.captureSession.stopRunning() }
+        stopFrames()
         setPhase(.captured, animated: true)
     }
 
@@ -389,12 +833,18 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     @objc private func retake() {
         capturedMatches = []
         state.reset()
+        lastStableIDs = []
+        lastStableChange = Date()
         lastReportedCount = -1
         updateCount(0)
-        cameraQueue.async { [weak self] in self?.captureSession.startRunning() }
+        clearMarkers()
+        redactionOverlay.clear()
         setPhase(.scanning, animated: true)
+        startFrames()
     }
 
+    /// Scanning shows only the live count and markers; capture happens on its
+    /// own. Captured shows Proceed and Retake.
     private func setPhase(_ new: Phase, animated: Bool) {
         phase = new
         let captured = new == .captured
@@ -405,13 +855,12 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
             : "0 medications detected"
         instructionLabel.text = captured
             ? "Tap Proceed to analyze"
-            : "Fill the box with the medication list"
-        shutter.setTitle(captured ? "Proceed" : nil, for: .normal)
-        shutter.accessibilityLabel = captured ? "Proceed to analysis" : "Capture"
+            : "Fill the box with the list. Captures automatically."
+        shutter.isUserInteractionEnabled = captured
+        retakeButton.isUserInteractionEnabled = captured
 
         let changes = {
-            self.shutter.layer.cornerRadius = captured ? L.proceedCorner : L.shutterDiameter / 2
-            self.shutterRing.alpha = captured ? 0 : 1
+            self.shutter.alpha = captured ? 1 : 0
             self.retakeButton.alpha = captured ? 1 : 0
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
@@ -421,7 +870,16 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         } else {
             changes()
         }
-        retakeButton.isUserInteractionEnabled = captured
+    }
+
+    // MARK: Display stack
+
+    /// The picture (camera preview or sample page) is inserted at the bottom
+    /// by the frame source; blur bars go above it, markers above those, and
+    /// chrome on top.
+    private func buildDisplayStack() {
+        view.addSubview(redactionOverlay)
+        view.layer.addSublayer(markerHost)
     }
 
     // MARK: Chrome construction
@@ -454,7 +912,6 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         lockChip.addSubview(lockText)
 
         // Instruction
-        instructionLabel.text = "Fill the box with the medication list"
         instructionLabel.textColor = .white
         instructionLabel.font = .app(15, weight: .medium)
         instructionLabel.textAlignment = .center
@@ -464,7 +921,6 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         view.addSubview(instructionLabel)
 
         // Count
-        countLabel.text = "0 medications detected"
         countLabel.textColor = .white
         countLabel.font = .app(15, weight: .semibold)
         countLabel.textAlignment = .center
@@ -473,20 +929,13 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         countLabel.layer.masksToBounds = true
         view.addSubview(countLabel)
 
-        // Shutter
-        shutterRing.layer.cornerRadius = L.ringDiameter / 2
-        shutterRing.layer.borderColor = UIColor.white.cgColor
-        shutterRing.layer.borderWidth = 3.5
-        shutterRing.isUserInteractionEnabled = false
-        view.addSubview(shutterRing)
-
-        // Green circle while scanning; morphs into a green "Proceed" square
-        // once a capture has been taken.
-        shutter.layer.cornerRadius = L.shutterDiameter / 2
+        // Proceed, only visible after a capture.
+        shutter.layer.cornerRadius = L.proceedCorner
         shutter.backgroundColor = .actionGreen
+        shutter.setTitle("Proceed", for: .normal)
         shutter.setTitleColor(.white, for: .normal)
         shutter.titleLabel?.font = .app(17, weight: .semibold)
-        shutter.accessibilityLabel = "Capture"
+        shutter.accessibilityLabel = "Proceed to analysis"
         shutter.addTarget(self, action: #selector(shutterDown), for: .touchDown)
         shutter.addTarget(self, action: #selector(shutterUp),
                           for: [.touchUpInside, .touchUpOutside, .touchCancel])
@@ -499,8 +948,6 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         retakeButton.titleLabel?.font = .app(15, weight: .medium)
         retakeButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         retakeButton.layer.cornerRadius = L.proceedCorner
-        retakeButton.alpha = 0
-        retakeButton.isUserInteractionEnabled = false
         retakeButton.addTarget(self, action: #selector(retake), for: .touchUpInside)
         view.addSubview(retakeButton)
     }
@@ -508,68 +955,99 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
     // MARK: Chrome layout
 
     /// Everything is positioned from the safe area outward, in a single pass,
-    /// so the spacing is consistent and the guide box takes whatever vertical
-    /// room is left rather than a fixed fraction of the screen.
+    /// so the spacing is consistent and the guide box takes whatever room is
+    /// left rather than a fixed fraction of the screen.
+    ///
+    /// Portrait stacks the controls under the guide box. Landscape (an iPad
+    /// on a desk, typically) moves them into a column on the right so the
+    /// guide box can use the full height instead of being squeezed to a
+    /// thin strip.
     private func layoutChrome() {
         let w = view.bounds.width
         let h = view.bounds.height
         let safeTop = view.safeAreaInsets.top
         let safeBottom = view.safeAreaInsets.bottom
+        let landscape = w > h
 
-        // Bottom up: shutter, count, instruction.
-        let shutterCenterY = h - safeBottom - L.shutterBottomGap - L.ringDiameter / 2
-        shutterRing.frame = CGRect(x: (w - L.ringDiameter) / 2,
-                                   y: shutterCenterY - L.ringDiameter / 2,
-                                   width: L.ringDiameter, height: L.ringDiameter)
-
-        switch phase {
-        case .scanning:
-            shutter.frame = CGRect(x: (w - L.shutterDiameter) / 2,
-                                   y: shutterCenterY - L.shutterDiameter / 2,
-                                   width: L.shutterDiameter, height: L.shutterDiameter)
-            retakeButton.frame = CGRect(x: (w - L.proceedWidth) / 2 - 12 - L.retakeWidth,
-                                        y: shutterCenterY - L.proceedHeight / 2,
-                                        width: L.retakeWidth, height: L.proceedHeight)
-        case .captured:
-            // Proceed square centred; Retake sits to its left.
-            shutter.frame = CGRect(x: (w - L.proceedWidth) / 2,
-                                   y: shutterCenterY - L.proceedHeight / 2,
-                                   width: L.proceedWidth, height: L.proceedHeight)
-            retakeButton.frame = CGRect(x: shutter.frame.minX - 12 - L.retakeWidth,
-                                        y: shutter.frame.minY,
-                                        width: L.retakeWidth, height: L.proceedHeight)
-        }
-
-        let countY = shutterRing.frame.minY - L.gutter - L.countHeight
-        countLabel.frame = CGRect(x: (w - L.countWidth) / 2, y: countY,
-                                  width: L.countWidth, height: L.countHeight)
-
-        let instructionWidth = w - 48
-        let instructionY = countY - 12 - L.labelHeight
-        instructionLabel.frame = CGRect(x: (w - instructionWidth) / 2, y: instructionY,
-                                        width: instructionWidth, height: L.labelHeight)
-
-        // Top down: privacy chip.
+        // Privacy chip, top centre in both layouts, sitting just inside the
+        // guide box's top edge.
         lockText.sizeToFit()
         let chipWidth = 12 + 12 + 7 + lockText.bounds.width + 14
-        let chipY = safeTop + L.chipTopGap
+        let chipY = safeTop + L.navClearance + 10
         lockChip.frame = CGRect(x: (w - chipWidth) / 2, y: chipY,
                                 width: chipWidth, height: L.chipHeight)
         lockIcon.frame = CGRect(x: 12, y: (L.chipHeight - 14) / 2, width: 12, height: 14)
         lockText.frame = CGRect(x: 12 + 12 + 7, y: 0,
                                 width: lockText.bounds.width, height: L.chipHeight)
 
-        // The guide box fills what's left between the two.
-        let guideWidth = w * L.guideWidthFraction
-        let guideTop = lockChip.frame.maxY + L.gutter
-        let guideBottom = instructionY - L.gutter
-        guideRect = CGRect(x: (w - guideWidth) / 2,
-                           y: guideTop,
-                           width: guideWidth,
-                           height: max(160, guideBottom - guideTop))
+        if landscape {
+            // Right-hand column: instruction, count, controls, centred vertically.
+            let columnWidth = max(L.countWidth, L.proceedWidth + 12 + L.retakeWidth) + 40
+            let columnX = w - columnWidth - view.safeAreaInsets.right
+            let centerX = columnX + columnWidth / 2
+            let centerY = h / 2
+
+            placeControls(centerX: centerX, centerY: centerY)
+
+            let countY = centerY - L.controlsHeight / 2 - L.gutter - L.countHeight
+            countLabel.frame = CGRect(x: centerX - L.countWidth / 2, y: countY,
+                                      width: L.countWidth, height: L.countHeight)
+            let instructionWidth = columnWidth - 24
+            instructionLabel.frame = CGRect(x: centerX - instructionWidth / 2,
+                                            y: countY - 12 - L.labelHeight,
+                                            width: instructionWidth, height: L.labelHeight)
+
+            // Guide box takes the rest: full height under the Cancel bar,
+            // with the privacy chip floating inside its top edge.
+            let guideLeft = view.safeAreaInsets.left + L.guideMargin
+            let guideTop = safeTop + L.navClearance
+            let guideBottom = h - safeBottom - L.guideMargin
+            guideRect = CGRect(x: guideLeft,
+                               y: guideTop,
+                               width: columnX - guideLeft - L.guideMargin,
+                               height: max(160, guideBottom - guideTop))
+        } else {
+            // Bottom up: controls, count, instruction.
+            let controlsCenterY = h - safeBottom - L.controlsBottomGap - L.controlsHeight / 2
+            placeControls(centerX: w / 2, centerY: controlsCenterY)
+
+            let countY = controlsCenterY - L.controlsHeight / 2 - L.gutter - L.countHeight
+            countLabel.frame = CGRect(x: (w - L.countWidth) / 2, y: countY,
+                                      width: L.countWidth, height: L.countHeight)
+
+            let instructionWidth = w - 48
+            let instructionY = countY - 12 - L.labelHeight
+            instructionLabel.frame = CGRect(x: (w - instructionWidth) / 2, y: instructionY,
+                                            width: instructionWidth, height: L.labelHeight)
+
+            // The guide box is nearly the whole screen: from just under the
+            // Cancel bar to just above the instruction, edge to edge. The
+            // privacy chip floats inside its top edge.
+            let guideTop = safeTop + L.navClearance
+            let guideBottom = instructionY - L.guideMargin
+            guideRect = CGRect(x: L.guideMargin,
+                               y: guideTop,
+                               width: w - L.guideMargin * 2,
+                               height: max(160, guideBottom - guideTop))
+        }
 
         guideLayer.frame = guideRect
         cornerLayer.path = cornerPath(in: guideRect).cgPath
+
+        let roi = guideRectInVisionSpace()
+        generationLock.lock()
+        cachedROI = roi
+        generationLock.unlock()
+    }
+
+    /// Proceed centred on a point, Retake to its left.
+    private func placeControls(centerX: CGFloat, centerY: CGFloat) {
+        shutter.frame = CGRect(x: centerX - L.proceedWidth / 2,
+                               y: centerY - L.controlsHeight / 2,
+                               width: L.proceedWidth, height: L.controlsHeight)
+        retakeButton.frame = CGRect(x: shutter.frame.minX - 12 - L.retakeWidth,
+                                    y: shutter.frame.minY,
+                                    width: L.retakeWidth, height: L.controlsHeight)
     }
 
     // MARK: Count
@@ -586,7 +1064,7 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         })
     }
 
-    // MARK: Shutter feedback
+    // MARK: Button feedback
 
     @objc private func shutterDown(_ sender: UIButton) {
         UIView.animate(withDuration: 0.08) {
