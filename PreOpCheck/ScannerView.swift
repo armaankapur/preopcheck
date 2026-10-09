@@ -4,9 +4,9 @@
 //
 //  What this screen does, top to bottom:
 //
-//  1. SECTION AWARENESS. Text at or below a recognised allergy-style heading
-//     is excluded before matching, so "Codeine - nausea" under ALLERGIES is
-//     never reported as an active medication.
+//  1. SECTION AWARENESS. Text inside an allergy-style section is excluded
+//     before matching, so "Codeine - nausea" under ALLERGIES is never
+//     reported as an active medication. SectionExclusion decides the bands.
 //
 //  2. LIVE MARKERS. Green ellipses outline recognised drugs; red ellipses
 //     mark drug-looking words that matched nothing, so the clinician can see
@@ -342,39 +342,49 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
             UIColor.white.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
 
-            func draw(_ text: String, y: CGFloat, size fontSize: CGFloat, bold: Bool = false, color: UIColor = .black) {
+            func draw(_ text: String, x: CGFloat = 110, y: CGFloat, size fontSize: CGFloat,
+                      bold: Bool = false, color: UIColor = .black) {
                 let font = bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-                (text as NSString).draw(at: CGPoint(x: 110, y: y), withAttributes: attrs)
+                (text as NSString).draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
             }
 
+            // Laid out like Epic's Medications tab, which is what the app is
+            // tested against: name on its own line, identifiers under it, then
+            // a table of title line + lowercase detail line, start date and
+            // ordering provider. Allergies sit at the bottom here so the
+            // section exclusion does not swallow the table.
+            let epicBlue = UIColor(red: 0.13, green: 0.36, blue: 0.69, alpha: 1)
             draw("Stanford Children's Health", y: 120, size: 44, bold: true)
-            draw("Pre-Anesthesia Visit Summary", y: 180, size: 36)
-            // Epic puts the name on its own line, surname first, then the
-            // identifiers. Both forms must come out blurred.
-            draw("SAMPLE, JANE Q", y: 250, size: 34, bold: true)
-            draw("DOB: 03/14/2015     Sex: Female     MRN: 4821937", y: 300, size: 30)
-            draw("Current Medications", y: 380, size: 40, bold: true)
+            draw("Doe, John", y: 210, size: 40, bold: true)
+            draw("MRN: 12345678     58 y.o.     M     01/01/1967     PCP: Smith, MD", y: 270, size: 28, color: .darkGray)
+            draw("Medications", y: 360, size: 40, bold: true, color: epicBlue)
 
-            let meds = [
-                "Lisinopril 10 mg tablet, once daily",
-                "Ibuprofen 400 mg tablet, every 6 hours as needed",
-                "Metoprolol succinate 25 mg, once daily",
-                "Vitamin D3 1000 IU capsule, once daily",
-                "Semaglutide 1 mg injection, weekly",
-                "Furosemide 20 mg tablet, twice daily",
-                "Cetirizine 10 mg tablet, at bedtime",
-                "Omeprazole 20 mg capsule, every morning"
+            let rows: [(title: String, detail: String, started: String)] = [
+                ("Acetaminophen (Tylenol)",   "acetaminophen 500 mg tablet",               "01/10/2024"),
+                ("Amlodipine (Norvasc)",      "amlodipine 5 mg tablet",                    "06/12/2023"),
+                ("Atorvastatin (Lipitor)",    "atorvastatin 20 mg tablet",                 "03/01/2023"),
+                ("Losartan (Cozaar)",         "losartan 50 mg tablet",                     "02/15/2023"),
+                ("Metformin (Glucophage)",    "metformin 500 mg tablet",                   "01/20/2023"),
+                ("Omeprazole (Prilosec)",     "omeprazole 20 mg capsule",                  "08/11/2023"),
+                ("Sertraline (Zoloft)",       "sertraline 50 mg tablet",                   "11/05/2023"),
+                ("Albuterol HFA (ProAir HFA)", "albuterol 90 mcg/actuation inhaler",       "04/22/2024"),
+                ("Fluticasone (Flonase)",     "fluticasone 50 mcg/actuation nasal spray",  "03/15/2023"),
+                ("Vitamin D3",                "cholecalciferol 1,000 unit tablet",         "01/10/2024")
             ]
-            for (i, med) in meds.enumerated() {
-                draw("\(i + 1).  \(med)", y: 460 + CGFloat(i) * 78, size: 34)
+            for (i, row) in rows.enumerated() {
+                let y = 440 + CGFloat(i) * 104
+                draw(row.title, y: y, size: 32, bold: true, color: epicBlue)
+                draw(row.detail, y: y + 42, size: 26, color: .darkGray)
+                draw(row.started, x: 760, y: y + 8, size: 26)
+                draw("Smith, MD", x: 960, y: y + 8, size: 26)
             }
 
-            draw("Allergies", y: 1200, size: 40, bold: true)
-            draw("Codeine - nausea and vomiting", y: 1270, size: 34)
-            draw("Penicillin - rash", y: 1340, size: 34)
+            draw("Allergies", y: 1520, size: 40, bold: true, color: epicBlue)
+            draw("Codeine - nausea and vomiting", y: 1590, size: 32)
+            draw("Penicillin - rash", y: 1650, size: 32)
             // Footer, the way printouts repeat the name on every page.
-            draw("Jane Q. Sample     Printed 10/09/2026     Page 1 of 1", y: 1460, size: 28, color: .darkGray)
+            draw("John Q. Doe     Printed 10/09/2026     Page 1 of 1", y: 1760, size: 26, color: .darkGray)
         }
     }
 
@@ -484,52 +494,6 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         try? handler.perform([request])
     }
 
-    // MARK: Section exclusion
-
-    /// Headings that mark the start of a non-medication section. Anything at or
-    /// below one of these is not an active medication list.
-    private static let excludedSectionHeadings = [
-        "allerg",              // ALLERGIES, ALLERGIES AND ADVERSE REACTIONS
-        "adverse reaction",
-        "intolerance",
-        "contraindication",
-        "discontinued",
-        "inactive medication",
-        "past medication"
-    ]
-
-    /// Returns the Vision-space y coordinate of the topmost excluded heading,
-    /// or nil if none is present. Vision's y increases upward, so anything with
-    /// a lower y than this sits visually below the heading.
-    ///
-    /// Limitation worth knowing: this assumes the allergy block appears below
-    /// the medication table, which is the standard layout in every EHR printout
-    /// I have seen. A document that puts allergies above the med list would
-    /// have its medications excluded. If that turns up in practice, the fix is
-    /// to bound the excluded band at the next section heading rather than
-    /// running it to the bottom of the page.
-    private func exclusionBoundary(in observations: [VNRecognizedTextObservation],
-                                   roi: CGRect) -> CGFloat? {
-        var boundary: CGFloat?
-
-        for obs in observations {
-            guard roi.intersects(obs.boundingBox) else { continue }
-            guard let text = obs.topCandidates(1).first?.string else { continue }
-
-            let lower = text.lowercased()
-            let isHeading = ScannerViewController.excludedSectionHeadings.contains {
-                lower.contains($0)
-            }
-            guard isHeading else { continue }
-
-            // Take the highest one on the page, so a later heading cannot
-            // reopen a section an earlier one closed.
-            let y = obs.boundingBox.maxY
-            if boundary == nil || y > boundary! { boundary = y }
-        }
-        return boundary
-    }
-
     // MARK: Recognition handling
 
     private func handle(observations: [VNRecognizedTextObservation],
@@ -541,7 +505,13 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         generationLock.unlock()
         guard isCurrent else { return }
 
-        let boundary = exclusionBoundary(in: observations, roi: roi)
+        // Every line as text plus box, for the page-level rules below.
+        let allLines = observations.compactMap { obs in
+            obs.topCandidates(1).first.map { ScannedLine(text: $0.string, box: obs.boundingBox) }
+        }
+        // Allergy-style sections, worked out from the lines in the guide box.
+        let excludedBands = SectionExclusion.bands(in: allLines.filter { roi.intersects($0.box) })
+
         var frameMatches: [String: DrugMatch] = [:]
         var greenBoxes: [String: CGRect] = [:]          // drug id -> marker box
         var unlisted: [(ingredient: String, box: CGRect)] = []
@@ -555,22 +525,17 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
         var lastPlainLine: CGRect?
         var seenUnlisted = Set<String>()
 
-        // Privacy: every line in the frame that identifies the patient, judged
-        // before matching so lines outside the guide box count too. Any that
-        // turn out to carry a drug are dropped from this list afterwards.
-        var identityLines: [CGRect] = []
-        for obs in observations {
-            if let text = obs.topCandidates(1).first?.string, PatientIdentity.isIdentityLine(text) {
-                identityLines.append(obs.boundingBox)
-            }
-        }
+        // Privacy: lines that identify the patient, judged across the whole
+        // frame so a header above the guide box counts too. Any that turn out
+        // to carry a drug are dropped from this list afterwards.
+        let identityLines = PatientIdentity.identityLines(in: allLines)
 
         // Top of the page first, so "first seen" means "the title line".
         for obs in observations.sorted(by: { $0.boundingBox.maxY > $1.boundingBox.maxY }) {
             guard roi.intersects(obs.boundingBox) else { continue }
 
-            // Skip the heading itself and everything visually below it.
-            if let boundary, obs.boundingBox.midY <= boundary { continue }
+            // Skip the allergy heading and the section under it.
+            if SectionExclusion.isExcluded(obs.boundingBox, by: excludedBands) { continue }
 
             guard let candidate = obs.topCandidates(1).first else { continue }
 
@@ -606,21 +571,26 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
             // One box per line covering name and brand together. A drug whose
             // ingredient was already marked higher up (the detail line under
             // "Vitamin D3" says "cholecalciferol") is skipped.
+            // The FDA list has products called "Allergies" and "Full", so a
+            // hit only counts on a line that looks like a medication entry.
             let hits = ScannerViewController.unlistedDrugHits(in: tokens)
                 .filter { !seenUnlisted.contains($0.ingredient) }
-            guard !hits.isEmpty else {
+            guard !hits.isEmpty,
+                  MedicationLineCues.hasMedicationContext(text: candidate.string,
+                                                          box: obs.boundingBox, in: allLines)
+            else {
                 lastPlainLine = obs.boundingBox
                 continue
             }
 
-            let isDetail = ScannerViewController.looksLikeDetailLine(candidate.string)
+            let isDetail = MedicationLineCues.looksLikeDetailLine(candidate.string)
             var box = ScannerViewController.titleBox(hitBoxes: hits.map(\.box), in: tokens)
             if isDetail {
-                if ScannerViewController.isDirectlyBelow(obs.boundingBox, markedLines) {
+                if MedicationLineCues.isDirectlyBelow(obs.boundingBox, markedLines) {
                     continue            // detail line of a drug already marked
                 }
                 if let title = lastPlainLine,
-                   ScannerViewController.isDirectlyBelow(obs.boundingBox, [title]) {
+                   MedicationLineCues.isDirectlyBelow(obs.boundingBox, [title]) {
                     box = title         // title misread: mark the title line instead
                 }
             }
@@ -692,31 +662,6 @@ final class ScannerViewController: UIViewController, AVCaptureVideoDataOutputSam
             i += 1
         }
         return box
-    }
-
-    /// Epic prints a detail line under each drug: lowercase, with a strength
-    /// and a form ("acetaminophen 500 mg tablet"). Both cues are required, so
-    /// a one-line printed list that happens to be lowercase is not affected.
-    private static func looksLikeDetailLine(_ text: String) -> Bool {
-        guard text.first?.isLowercase == true else { return false }
-        let words = Set(DrugMatcher.normalize(text).split(separator: " ").map(String.init))
-        return !words.isDisjoint(with: detailWords)
-    }
-
-    private static let detailWords: Set<String> = [
-        "mg", "mcg", "g", "ml", "unit", "units", "iu", "meq", "tablet", "tablets", "capsule",
-        "capsules", "spray", "puff", "puffs", "patch", "solution", "suspension", "injection",
-        "inhaler", "actuation", "drops", "cream", "ointment", "chewable", "syrup", "lozenge"
-    ]
-
-    /// True when `line` sits directly under one of `lines`: within about one
-    /// and a half line heights. Vision's y axis points up, so "below" means
-    /// a smaller y.
-    private static func isDirectlyBelow(_ line: CGRect, _ lines: [CGRect]) -> Bool {
-        lines.contains { above in
-            let gap = above.minY - line.maxY
-            return gap > -line.height * 0.3 && gap < line.height * 1.5
-        }
     }
 
     // MARK: Markers
