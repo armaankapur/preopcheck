@@ -28,7 +28,7 @@ import Combine
 /// screenshots and screen recordings while the UI is being reviewed.
 /// Set back to `true` before any build that may hold real patient data.
 enum ScreenCaptureProtection {
-    static let isEnabled = false
+    static let isEnabled = true
 }
 
 // MARK: - Secure container
