@@ -2,6 +2,13 @@
 //  HomeView.swift
 //  Stanford Preoperative Medication
 //
+//  Landing page: the two ways to start a check, the most recent saved
+//  cases, and the offline assurances.
+//
+//  Built as a List rather than a ScrollView so the saved-case rows get the
+//  system swipe-to-delete. The intro and the two buttons are list rows with
+//  no background, inset or separator, so they look like plain content.
+//
 
 import Foundation
 import SwiftUI
@@ -11,28 +18,26 @@ struct HomeView: View {
 
     @State private var showEntry = false
     @State private var showScanner = false
-    @State private var navigateToResults = false
 
-    @State private var resultsToShow: [ResolvedMedication] = []
-    @State private var unmatchedToShow: [String] = []
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .short
-        f.timeStyle = .short
-        return f
-    }()
+    /// How many saved cases Home shows before handing off to Saved Cases.
+    private static let recentLimit = 3
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+        List {
+            Group {
                 header
                 scanButton
                 manualButton
-                recentCases
-                offlineAnalysis
             }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            recentCases
+            offlineAnalysis
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .background(Color.stanfordLight)
         .navigationTitle("")
         .navigationBarHidden(true)
@@ -46,10 +51,6 @@ struct HomeView: View {
             // CameraWrapperView owns the permission gate, the privacy
             // explainer and the push to results, so nothing is wired here.
             CameraWrapperView()
-                .environmentObject(caseStore)
-        }
-        .navigationDestination(isPresented: $navigateToResults) {
-            ResultsView(medications: resultsToShow, unmatched: unmatchedToShow)
                 .environmentObject(caseStore)
         }
     }
@@ -71,9 +72,8 @@ struct HomeView: View {
                 .lineSpacing(3)
                 .padding(.top, 4)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 28)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
     }
 
     // MARK: Buttons
@@ -94,7 +94,7 @@ struct HomeView: View {
             .background(Color.actionGreen)
             .cornerRadius(14)
         }
-        .padding(.horizontal, 20)
+        .buttonStyle(.plain)
         .padding(.bottom, 10)
     }
 
@@ -118,91 +118,38 @@ struct HomeView: View {
                     .stroke(Color.actionGreen, lineWidth: 1.5)
             )
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 32)
+        .buttonStyle(.plain)
+        .padding(.bottom, 8)
     }
 
     // MARK: Recent cases
 
+    /// The newest few, each a swipe-to-delete row that opens its results.
+    /// Past the limit, one link to the full Saved Cases screen.
     private var recentCases: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("RECENT CASES")
-                .font(.app(13, .semibold))
-                .foregroundColor(.inkSecondary)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-
+        Section {
             if caseStore.cases.isEmpty {
                 Text("No recent cases. Start a new check above.")
                     .font(.app(14))
                     .foregroundColor(.inkSecondary)
-                    .padding(.horizontal, 20)
             } else {
-                VStack(spacing: 1) {
-                    ForEach(caseStore.cases.prefix(5)) { c in
-                        Button {
-                            open(c)
-                        } label: {
-                            caseRow(c)
-                        }
+                ForEach(caseStore.cases.prefix(HomeView.recentLimit)) { savedCase in
+                    NavigationLink(value: savedCase) {
+                        SavedCaseRow(savedCase: savedCase)
+                    }
+                    .deletesSavedCase(savedCase, from: caseStore)
+                }
+                if caseStore.cases.count > HomeView.recentLimit {
+                    NavigationLink(value: SavedCasesRoute()) {
+                        Text("All cases (\(caseStore.cases.count))")
+                            .font(.app(15, .medium))
+                            .foregroundColor(.actionGreen)
                     }
                 }
-                .cornerRadius(14)
-                .padding(.horizontal, 20)
             }
+        } header: {
+            sectionHeader("Recent cases")
         }
-    }
-
-    private func caseRow(_ c: SavedCase) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text("Case \(String(c.id.uuidString.prefix(4)))")
-                        .font(.app(15, .semibold))
-                        .foregroundColor(.inkPrimary)
-                    if c.isStale {
-                        Text("OLD GUIDELINE")
-                            .font(.app(9, .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.orange)
-                            .cornerRadius(3)
-                    }
-                }
-
-                HStack(spacing: 4) {
-                    if c.holdCount > 0 {
-                        Text("\(c.holdCount) hold")
-                            .foregroundColor(Color.stanford)
-                    } else {
-                        Text("0 hold")
-                            .foregroundColor(.inkSecondary)
-                    }
-                    Text("·").foregroundColor(.inkSecondary)
-                    Text("\(c.medications.count) meds")
-                        .foregroundColor(.inkSecondary)
-                    Text("·").foregroundColor(.inkSecondary)
-                    Text(HomeView.timeFormatter.string(from: c.date))
-                        .foregroundColor(.inkSecondary)
-                }
-                .font(.app(13))
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.app(14, .medium))
-                .foregroundColor(Color(.systemGray3))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(Color.white)
-    }
-
-    private func open(_ c: SavedCase) {
-        let outcome = MedicationResolver.resolve(saved: c)
-        resultsToShow = outcome.medications
-        unmatchedToShow = outcome.unmatched
-        navigateToResults = true
     }
 
     // MARK: Offline analysis
@@ -220,37 +167,31 @@ struct HomeView: View {
     ]
 
     private var offlineAnalysis: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("OFFLINE ANALYSIS")
-                .font(.app(13, .semibold))
-                .foregroundColor(.inkSecondary)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-
-            VStack(spacing: 0) {
-                ForEach(assurances) { item in
-                    HStack(spacing: 14) {
-                        Image(systemName: item.icon)
-                            .font(.app(18, .semibold))
-                            .foregroundColor(.stanford)
-                            .frame(width: 28, alignment: .center)
-                        Text(item.text)
-                            .font(.app(16, .medium))
-                            .foregroundColor(.inkPrimary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 13)
-                    if item.id != assurances.last?.id {
-                        Divider().padding(.leading, 58)
-                    }
+        Section {
+            ForEach(assurances) { item in
+                HStack(spacing: 14) {
+                    Image(systemName: item.icon)
+                        .font(.app(18, .semibold))
+                        .foregroundColor(.stanford)
+                        .frame(width: 28, alignment: .center)
+                    Text(item.text)
+                        .font(.app(16, .medium))
+                        .foregroundColor(.inkPrimary)
+                    Spacer()
                 }
+                .padding(.vertical, 2)
             }
-            .background(Color.white)
-            .cornerRadius(14)
-            .padding(.horizontal, 20)
+        } header: {
+            sectionHeader("Offline analysis")
         }
-        .padding(.top, 28)
-        .padding(.bottom, 32)
+    }
+
+    // MARK: Helpers
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.app(13, .semibold))
+            .foregroundColor(.inkSecondary)
+            .textCase(.uppercase)
     }
 }

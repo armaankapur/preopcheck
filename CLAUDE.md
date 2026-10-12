@@ -25,24 +25,32 @@ recognition).
 PreOpCheck/                     the app itself
   PreOpCheckApp.swift           app starts here; creates the CaseStore
   ContentView.swift             root navigation, shows HomeView
-  HomeView.swift                home screen: Scan, Enter Manually, recent cases
+  HomeView.swift                home screen: Scan, Enter Manually, three most recent cases
+  SavedCasesView.swift          all saved cases, plus the shared case row and swipe-to-delete
   CameraWrapperView.swift       scan flow: camera permission, privacy notice, scanner, results
-  ScannerView.swift             live camera + text recognition + allergy-section exclusion
+  ScannerView.swift             live camera + text recognition + drawing markers + auto-capture
+  PageAnalysis.swift            the scanner's decisions: lines in, green / red / blur out (testable on images)
+  ScannedLine.swift             one recognised line + its box; shared by the three page rules below
+  SectionExclusion.swift        which part of the page is the allergy section (kept away from matching)
+  MedicationLineCues.swift      does a line look like a medication entry (dose words, Epic detail lines)
   PatientIdentity.swift         decides which scanned lines identify the patient (name, DOB, MRN)
   RedactionOverlayView.swift    the blur bars the scanner draws over those lines
+  SteadinessMonitor.swift       motion sensor check: scanner draws nothing while the phone moves
   EntryView.swift               typing drug names by hand
   DrugMatcher.swift             turns text into drugs (exact, salt-stripped, and fuzzy matching)
   DrugLexicon.swift             big FDA name list; only answers "is this word a drug at all?"
   DrugNames.txt                 the data DrugLexicon loads (generated, do not edit by hand)
   MedicationResolver.swift      one front door for "text -> drugs" (manual, scan, saved case)
   MedicationDatabase.swift      THE CLINICAL DATA: every drug and its pre-op instruction
-  ResultsView.swift             results screen: Hold / Consult / Take as directed, Save Case
+  ResultsView.swift             results screen: Hold / Consult, Take as directed, Save Case
+  ResultsGrouping.swift         which group each drug goes in and what its pill says (consult = "*")
   CaseStore.swift               saved cases, stored on the phone in UserDefaults
   PrivacyNotice.swift           first-run privacy explainer
   ScreenCaptureProtection.swift blacks out results in screenshots / screen recordings
   Theme.swift                   colors and font sizes
   Info.plist, Assets.xcassets   app settings, icon, colors
-PreOpCheckTests/                tests (DrugMatcherTests.swift covers the matcher, PatientIdentityTests.swift the privacy blur; nothing else yet)
+PreOpCheckTests/                tests: DrugMatcherTests, SectionExclusionTests, MedicationLineCuesTests, PatientIdentityTests, ResultsGroupingTests,
+                                PageAnalysisTests (whole pictures through recognition + analysis); Fixtures/ holds the pictures
 PreOpCheck.xcodeproj/           Xcode project
 tools/build_drug_lexicon.py     rebuilds DrugNames.txt from the FDA drug directory
 docs/                           README screenshot, plus docs/worklog/ (dated notes on what was done)
@@ -146,8 +154,8 @@ between passes.
    This is clinical content. That means anything in `MedicationDatabase.swift`
    (drugs, brands, actions, hold times, conditionals, interaction rules, guideline
    revision) and any logic that decides which drug or instruction a patient gets
-   (`DrugMatcher.swift`, `MedicationResolver.swift`, the section exclusion in
-   `ScannerView.swift`, severity bucketing in `ResultsView.swift`). Describe the
+   (`DrugMatcher.swift`, `MedicationResolver.swift`, the allergy-section rule in
+   `SectionExclusion.swift`, severity bucketing in `ResultsView.swift`). Describe the
    proposed change and why, and wait for a yes.
 2. **The camera only works on a real iPhone.** Scanning cannot be tested in the simulator.
 3. **The simulator supports manual entry only.** Use "Enter Manually" to test there.

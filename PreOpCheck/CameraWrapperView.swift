@@ -26,6 +26,8 @@ struct CameraWrapperView: View {
 
     @State private var scannedMatches: [DrugMatch] = []
     @State private var isScanning = true
+    /// Bumped when results close, telling the scanner to go live again.
+    @State private var scannerResumeToken = 0
 
     @State private var resolved: [ResolvedMedication] = []
     @State private var unmatched: [String] = []
@@ -52,7 +54,8 @@ struct CameraWrapperView: View {
                     }
                 }
                 .navigationDestination(isPresented: $showResults) {
-                    ResultsView(medications: resolved, unmatched: unmatched)
+                    // Saving closes the whole scan flow and lands on Home.
+                    ResultsView(medications: resolved, unmatched: unmatched, onSaved: { dismiss() })
                         .environmentObject(caseStore)
                 }
         }
@@ -69,6 +72,16 @@ struct CameraWrapperView: View {
             unmatched = outcome.unmatched
             showResults = true
         }
+        // Back from results: re-arm for a fresh scan. The token tells the
+        // scanner to drop its frozen capture (same as Retake); clearing the
+        // old matches means the next capture is a new change and pushes
+        // results again.
+        .onChange(of: showResults) { showing in
+            guard !showing else { return }
+            scannedMatches = []
+            isScanning = true
+            scannerResumeToken += 1
+        }
     }
 
     @ViewBuilder
@@ -82,7 +95,8 @@ struct CameraWrapperView: View {
         case .authorized:
             // Secure container: the live preview and detected-count chrome
             // are blacked out in screenshots and recordings.
-            ScannerView(scannedMeds: $scannedMatches, isScanning: $isScanning)
+            ScannerView(scannedMeds: $scannedMatches, isScanning: $isScanning,
+                        resumeToken: scannerResumeToken)
                 .ignoresSafeArea()
                 .screenCaptureProtected()
                 .ignoresSafeArea()

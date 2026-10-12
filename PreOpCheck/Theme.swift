@@ -28,6 +28,14 @@ extension UIColor {
     /// UIKit twin of `Color.actionGreen`, for the camera chrome.
     static let actionGreen = UIColor(red: 0x1E / 255, green: 0x8E / 255, blue: 0x3E / 255, alpha: 1)
 
+    /// Outline the scanner draws around every drug it picked up. It only says
+    /// "found", not good or bad, so it avoids green and red. Brighter than the
+    /// navy link blue EHRs use for drug names, so the ring stays distinct from
+    /// the text it surrounds, and over 3:1 against white paper. Fixed rather
+    /// than systemBlue because it is drawn on paper, not on the app's own
+    /// background, so it should not change in dark mode.
+    static let scanMarker = UIColor(red: 0x00 / 255, green: 0x7A / 255, blue: 0xFF / 255, alpha: 1)
+
     /// Tint laid over the blur that hides patient details on the scanner, so
     /// the bar reads as deliberately covered rather than out of focus.
     static let redactionTint = UIColor.black.withAlphaComponent(0.12)
